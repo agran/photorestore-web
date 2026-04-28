@@ -67,16 +67,18 @@ export default function ImageCompare({ beforeUrl, afterUrl, className }: ImageCo
       onPointerUp={onPointerUp}
     >
       {/* After (base layer) */}
-      <img src={afterUrl} alt="After" className="block h-full w-full object-contain" draggable={false} />
+      <img
+        src={afterUrl}
+        alt={t('imageCompare.afterAlt')}
+        className="block h-full w-full object-contain"
+        draggable={false}
+      />
 
       {/* Before (clipped) */}
-      <div
-        className="absolute inset-0 overflow-hidden"
-        style={{ width: `${position}%` }}
-      >
+      <div className="absolute inset-0 overflow-hidden" style={{ width: `${position}%` }}>
         <img
           src={beforeUrl}
-          alt="Before"
+          alt={t('imageCompare.beforeAlt')}
           className="block h-full w-full object-contain"
           draggable={false}
           style={{ width: containerRef.current?.clientWidth ?? 'auto' }}
@@ -84,10 +86,7 @@ export default function ImageCompare({ beforeUrl, afterUrl, className }: ImageCo
       </div>
 
       {/* Divider line */}
-      <div
-        className="absolute inset-y-0 w-0.5 bg-white shadow"
-        style={{ left: `${position}%` }}
-      />
+      <div className="absolute inset-y-0 w-0.5 bg-white shadow" style={{ left: `${position}%` }} />
 
       {/* Handle */}
       <div
@@ -103,16 +102,22 @@ export default function ImageCompare({ beforeUrl, afterUrl, className }: ImageCo
         onKeyDown={onKeyDown}
       >
         <svg className="h-4 w-4 text-primary" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M5 2 L2 8 L5 14 M11 2 L14 8 L11 14" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+          <path
+            d="M5 2 L2 8 L5 14 M11 2 L14 8 L11 14"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            fill="none"
+            strokeLinecap="round"
+          />
         </svg>
       </div>
 
       {/* Labels */}
       <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-xs text-white">
-        Before
+        {t('imageCompare.before')}
       </div>
       <div className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/50 px-2 py-0.5 text-xs text-white">
-        After
+        {t('imageCompare.after')}
       </div>
     </div>
   );

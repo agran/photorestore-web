@@ -12,7 +12,7 @@ export default function Footer() {
           <Sparkles className="h-4 w-4" />
           <span>{t('common.appName')}</span>
           <span>·</span>
-          <span>MIT License</span>
+          <span>{t('footer.mitLicense')}</span>
         </div>
         <nav className="flex items-center gap-4 text-sm text-muted-foreground">
           <Link to="/about" className="hover:text-foreground transition-colors">
@@ -24,7 +24,7 @@ export default function Footer() {
             rel="noopener noreferrer"
             className="hover:text-foreground transition-colors"
           >
-            GitHub
+            {t('footer.github')}
           </a>
         </nav>
       </div>

@@ -24,13 +24,13 @@ export default function Header() {
         {/* Navigation */}
         <nav className="flex items-center gap-4">
           <NavLink to="/" end className={navLinkClass}>
-            Home
+            {t('header.home')}
           </NavLink>
           <NavLink to="/editor" className={navLinkClass}>
-            Editor
+            {t('header.editor')}
           </NavLink>
           <NavLink to="/about" className={navLinkClass}>
-            About
+            {t('header.about')}
           </NavLink>
         </nav>
 

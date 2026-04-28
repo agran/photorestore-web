@@ -65,12 +65,7 @@ export default function MaskEditor({ imageUrl, onMaskReady, className }: MaskEdi
         Paint white over areas to inpaint
       </p>
       <div className="relative overflow-hidden rounded-lg border bg-checkerboard">
-        <img
-          src={imageUrl}
-          alt="Source"
-          className="w-full object-contain"
-          draggable={false}
-        />
+        <img src={imageUrl} alt="Source" className="w-full object-contain" draggable={false} />
         <canvas
           ref={canvasRef}
           className="absolute inset-0 h-full w-full cursor-crosshair opacity-60"

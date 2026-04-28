@@ -1,4 +1,13 @@
 {
+  "header": {
+    "home": "Главная",
+    "editor": "Редактор",
+    "about": "О проекте"
+  },
+  "footer": {
+    "mitLicense": "Лицензия MIT",
+    "github": "GitHub"
+  },
   "common": {
     "appName": "PhotoRestore Web",
     "download": "Скачать",
@@ -47,7 +56,18 @@
     "history": "История",
     "download": "Скачать результат",
     "undo": "Отменить",
-    "sliderLabel": "Перетащите для сравнения"
+    "sliderLabel": "Перетащите для сравнения",
+    "noHistory": "История пуста",
+    "downloadFilename": "restored.png"
+  },
+  "imageCompare": {
+    "before": "До",
+    "after": "После",
+    "beforeAlt": "Исходное изображение",
+    "afterAlt": "Результат"
+  },
+  "dropzone": {
+    "previewAlt": "Предпросмотр"
   },
   "about": {
     "title": "О проекте PhotoRestore Web",
@@ -93,5 +113,13 @@
     "unsupportedFormat": "Неподдерживаемый формат файла",
     "fileTooLarge": "Файл слишком большой (макс. 32 МБ)",
     "webgpuUnavailable": "WebGPU недоступен в этом браузере, используется WASM"
+  },
+  "models": {
+    "realesrgan-x4plus": "Real-ESRGAN x4plus — универсальное увеличение разрешения ×4",
+    "realesrgan-x4plus-anime": "Real-ESRGAN x4plus Anime — оптимизирован для аниме и иллюстраций",
+    "gfpgan-v1.4": "GFPGAN v1.4 — восстановление лиц с генеративным приором",
+    "codeformer": "CodeFormer — надёжное восстановление лиц с контролем fidelity",
+    "lama": "LaMa — закрашивание больших масок с Fourier-свёртками",
+    "scunet": "SCUNet — слепое шумоподавление без потери чёткости"
   }
 }

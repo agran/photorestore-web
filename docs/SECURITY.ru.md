@@ -21,6 +21,7 @@ Cross-Origin-Embedder-Policy: require-corp
 ```
 
 Эти заголовки устанавливаются:
+
 1. В `vite.config.ts` (сервер разработки)
 2. В `public/coi-serviceworker.js` (продакшн, через Service Worker)
 

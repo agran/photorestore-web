@@ -88,7 +88,7 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
       {preview ? (
         <img
           src={preview}
-          alt="Preview"
+          alt={t('dropzone.previewAlt')}
           className="h-full w-full rounded-xl object-contain"
         />
       ) : (

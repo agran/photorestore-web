@@ -22,11 +22,11 @@ This produces smooth, seam-free output even with large overlaps.
 
 ## Backend Performance
 
-| Backend | VRAM | Speed | Notes |
-|---------|------|-------|-------|
-| WebGPU | GPU | Fast | Chrome/Edge 113+, requires secure context |
-| WASM SIMD | CPU | Medium | Supported in all modern browsers |
-| WASM fallback | CPU | Slow | Maximum compatibility |
+| Backend       | VRAM | Speed  | Notes                                     |
+| ------------- | ---- | ------ | ----------------------------------------- |
+| WebGPU        | GPU  | Fast   | Chrome/Edge 113+, requires secure context |
+| WASM SIMD     | CPU  | Medium | Supported in all modern browsers          |
+| WASM fallback | CPU  | Slow   | Maximum compatibility                     |
 
 ## Optimization Tips
 
@@ -40,6 +40,7 @@ This produces smooth, seam-free output even with large overlaps.
 > TODO: add real benchmarks once pipelines are implemented.
 
 Preliminary estimates for 512×512 → 2048×2048 (Real-ESRGAN x4):
+
 - WebGPU (RTX 3060): ~1.2s
 - WASM SIMD (M2): ~8s
 - WASM SIMD (i7-1185G7): ~18s

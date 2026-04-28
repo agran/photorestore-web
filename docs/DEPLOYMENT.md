@@ -18,9 +18,9 @@ pnpm build
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `BASE_URL` | Base path for GitHub Pages deployment | `/` |
+| Variable   | Description                           | Default |
+| ---------- | ------------------------------------- | ------- |
+| `BASE_URL` | Base path for GitHub Pages deployment | `/`     |
 
 For GitHub Pages at `https://user.github.io/photorestore-web/`, set `BASE_URL=/photorestore-web/`.
 

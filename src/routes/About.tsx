@@ -52,11 +52,7 @@ export default function About() {
           </a>
         </Button>
         <Button asChild variant="outline">
-          <a
-            href="https://opensource.org/licenses/MIT"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <a href="https://opensource.org/licenses/MIT" target="_blank" rel="noopener noreferrer">
             {t('about.license')}
           </a>
         </Button>

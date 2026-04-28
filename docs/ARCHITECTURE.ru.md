@@ -5,6 +5,7 @@
 ## Обзор
 
 PhotoRestore Web — полностью клиентское приложение AI-реставрации фотографий:
+
 - **Vite 5 + React 18 + TypeScript 5 (strict)** — UI-фреймворк
 - **ONNX Runtime Web (WebGPU + WASM)** — движок ML-инференса
 - **Zustand 4** — управление состоянием

@@ -1,0 +1,11 @@
+# Kilo AI tooling
+.kilo/
+
+# Build output
+dist/
+
+# Generated lockfile
+pnpm-lock.yaml
+
+# Service worker (vendored, not our formatting)
+public/coi-serviceworker.js

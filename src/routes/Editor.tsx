@@ -57,7 +57,7 @@ export default function Editor() {
           <div className="flex gap-2">
             <Button
               className="flex-1 gap-2"
-              onClick={() => downloadImageUrl(currentImageUrl, 'restored.png')}
+              onClick={() => downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))}
             >
               <Download className="h-4 w-4" />
               {t('editor.download')}
@@ -76,7 +76,7 @@ export default function Editor() {
             </CardHeader>
             <CardContent className="flex flex-col gap-2 overflow-y-auto">
               {history.length === 0 && (
-                <p className="text-xs text-muted-foreground">No history yet</p>
+                <p className="text-xs text-muted-foreground">{t('editor.noHistory')}</p>
               )}
               {history.map((entry) => (
                 <button
