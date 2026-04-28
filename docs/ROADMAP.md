@@ -28,6 +28,9 @@
 - [x] WebGPU/WASM backend auto-detection with timeout
 - [x] Console logging: model name, input size, backend
 - [x] Model selector in ToolPanel (dropdown with all upscale models)
+- [x] NMKD Superscale (64 MB, RRDBNet, high-fidelity clean photo upscaling)
+- [x] 4xNomos8kSC (64 MB, ONNX from nesaorg, top photo quality)
+- [x] 4xLSDIR-DAT (62 MB, ONNX from nesaorg, DAT backbone)
 
 ## v0.3 — Face Restoration
 

@@ -9,6 +9,9 @@ This document describes all ML models planned for PhotoRestore Web, their source
 | ID                        | Name                     | Pipeline     | License      | Size   | Input       | Source                                         |
 | ------------------------- | ------------------------ | ------------ | ------------ | ------ | ----------- | ---------------------------------------------- |
 | `realesrgan-x4plus`       | Real-ESRGAN x4plus       | Upscale      | BSD-3-Clause | 67 MB  | 1×3×128×128 | `bukuroo/RealESRGAN-ONNX` (HF)                 |
+| `nmkd-superscale`         | NMKD Superscale          | Upscale      | BSD-3-Clause | 64 MB  | 1×3×256×256 | `gemasai/4x_NMKD-Superscale-SP_178000_G` (HF)  |
+| `nomos8ksc`               | 4xNomos8kSC              | Upscale      | MIT          | 64 MB  | 1×3×256×256 | `nesaorg/4xNomos8kSC_fp32_opset17` (HF)        |
+| `lsdir-dat`               | 4xLSDIR-DAT              | Upscale      | MIT          | 62 MB  | 1×3×256×256 | `nesaorg/4xLSDIRDAT_fp32_opset17` (HF)         |
 | `cugan-up4x`              | Real-CUGAN Up×4          | Upscale      | MIT          | 2 MB   | 1×3×64×64   | `AmusementClub/vs-mlrt` (GitHub)               |
 | `cugan-up4x-denoise`      | Real-CUGAN Up×4 Denoise  | Upscale      | MIT          | 2 MB   | 1×3×64×64   | `AmusementClub/vs-mlrt` (GitHub)               |
 | `gfpgan-v1.4`             | GFPGAN v1.4              | Face Restore | Apache-2.0   | 325 MB | 1×3×512×512 | `neurobytemind/GFPGANv1.4.onnx` (HF)          |
@@ -19,8 +22,8 @@ This document describes all ML models planned for PhotoRestore Web, their source
 
 ## Notes
 
-- All models are served as ONNX format.
-- Models are placed in `public/models/` and loaded from the same origin.
+- All models are served from CDN (`https://www.erudit23.ru/models/`) in production.
+- In local dev (`pnpm dev`), models are loaded from `public/models/`.
 - Model URLs are configurable in `src/ml/modelRegistry.ts`.
 - SHA-256 checksums are verified after download (when provided).
 - No model data is included in the repository.
