@@ -116,7 +116,9 @@
   },
   "models": {
     "realesrgan-x4plus": "Real-ESRGAN x4plus — универсальное увеличение разрешения ×4",
-    "realesrgan-x4plus-anime": "Real-ESRGAN x4plus Anime — оптимизирован для аниме и иллюстраций",
+    "nmkd-superscale": "NMKD Superscale — высокоточный апскейл чистых фотографий",
+    "nomos8ksc": "4xNomos8kSC — топ-качество апскейла, лучше всего для чистых изображений",
+    "lsdir-dat": "4xLSDIR-DAT — отличная детализация на базе DAT",
     "cugan-up4x": "Real-CUGAN Up×4 — быстрый лёгкий апскейл",
     "cugan-up4x-denoise": "Real-CUGAN Up×4 Denoise — апскейл с шумоподавлением",
     "gfpgan-v1.4": "GFPGAN v1.4 — восстановление лиц с генеративным приором",

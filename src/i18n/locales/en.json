@@ -116,7 +116,9 @@
   },
   "models": {
     "realesrgan-x4plus": "Real-ESRGAN x4plus — general-purpose 4× super resolution",
-    "realesrgan-x4plus-anime": "Real-ESRGAN x4plus Anime — optimized for anime and illustrations",
+    "nmkd-superscale": "NMKD Superscale — high-fidelity clean photo upscaling",
+    "nomos8ksc": "4xNomos8kSC — top-quality photo upscaling, best for clean images",
+    "lsdir-dat": "4xLSDIR-DAT — excellent detail preservation with DAT backbone",
     "cugan-up4x": "Real-CUGAN Up×4 — fast lightweight upscale",
     "cugan-up4x-denoise": "Real-CUGAN Up×4 Denoise — upscale with denoising",
     "gfpgan-v1.4": "GFPGAN v1.4 — face restoration with generative prior",
