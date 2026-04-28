@@ -4,6 +4,8 @@
 
 AI-powered photo restoration running entirely in your browser — no backend, no data uploaded.
 
+**Live Demo:** [agran.github.io/photorestore-web](https://agran.github.io/photorestore-web/)
+
 [![CI](https://github.com/agran/photorestore-web/actions/workflows/ci.yml/badge.svg)](https://github.com/agran/photorestore-web/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
