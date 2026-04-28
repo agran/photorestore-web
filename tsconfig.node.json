@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "composite": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist-types"
+  },
+  "include": ["vite.config.ts", "vitest.config.ts", "playwright.config.ts", "tailwind.config.ts", "postcss.config.cjs"]
+}

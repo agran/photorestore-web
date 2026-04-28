@@ -81,7 +81,12 @@ out
 # Nuxt.js build / generate output
 .nuxt
 dist
+dist-types
 .output
+
+# Playwright
+playwright-report/
+test-results/
 
 # Gatsby files
 .cache/
