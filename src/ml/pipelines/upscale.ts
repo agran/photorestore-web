@@ -6,7 +6,7 @@ import { splitTiles, mergeTiles, type TileOptions, type ProcessedTile } from '@/
 import { canvasToNCHW, nchwToCanvas } from '@/ml/utils/tensor';
 
 export interface UpscaleOptions {
-  modelId?: 'realesrgan-x4plus' | 'realesrgan-x4plus-anime';
+  modelId?: string;
   tileSize?: number;
   tileOverlap?: number;
   onProgress?: (percent: number) => void;

@@ -4,6 +4,7 @@ import { upscale, type UpscaleOptions, isModelCached } from '@/ml/pipelines/upsc
 import { faceRestore, type FaceRestoreOptions } from '@/ml/pipelines/faceRestore';
 import { inpaint, type InpaintOptions } from '@/ml/pipelines/inpaint';
 import { denoise, type DenoiseOptions } from '@/ml/pipelines/denoise';
+import { getModel } from '@/ml/modelRegistry';
 
 export type PipelineType = 'upscale' | 'faceRestore' | 'inpaint' | 'denoise';
 
@@ -95,8 +96,13 @@ export async function runPipeline(type: PipelineType, options?: PipelineOptions)
     const blob = await canvasToBlob(result.canvas);
     const resultUrl = URL.createObjectURL(blob);
 
+    const modelId =
+      type === 'upscale' ? (options as UpscaleOptions)?.modelId : undefined;
+    const modelName = modelId ? getModel(modelId)?.name : type;
+    const label = modelName ?? type;
+
     store.setImage(resultUrl);
-    store.pushHistory({ imageUrl: resultUrl, label: type });
+    store.pushHistory({ imageUrl: resultUrl, label });
     store.setJob({ id: jobId, pipeline: type, status: 'done', progress: 100 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

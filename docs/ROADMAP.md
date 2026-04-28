@@ -17,12 +17,18 @@
 - [x] Unit tests (tiling, tensor)
 - [x] GitHub Actions CI + GitHub Pages deploy
 
-## v0.2 — Real Upscaling
+## v0.2 — Real Upscaling ✅
 
-- [ ] Real-ESRGAN x4plus integration
-- [ ] Real-ESRGAN x4plus-anime integration
-- [ ] Model download UI with progress
-- [ ] Tiling worker integration
+- [x] Real-ESRGAN x4plus integration
+- [x] Real-ESRGAN x4plus-anime integration
+- [x] Real-CUGAN Up×4 (conservative)
+- [x] Real-CUGAN Up×4 Denoise
+- [x] Inference worker (ORT session + tensor inference via Comlink)
+- [x] Tiling with model-input padding (64×64 tiles → pad → infer → crop → blend)
+- [x] Model download progress + per-tile inference progress in ProgressBar
+- [x] WebGPU/WASM backend auto-detection with timeout
+- [x] Console logging: model name, input size, backend
+- [x] Model selector in ToolPanel (dropdown with all upscale models)
 
 ## v0.3 — Face Restoration
 
@@ -39,7 +45,8 @@
 
 ## v0.5 — Denoising
 
-- [ ] SCUNet integration
+- [ ] DRUNet integration
+- [ ] DRUNet Deblock integration (denoise + JPEG artifact removal)
 - [ ] Noise level estimation
 
 ## v0.6 — Face Anonymization (Hide Faces)

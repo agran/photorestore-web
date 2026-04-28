@@ -6,18 +6,23 @@ This document describes all ML models planned for PhotoRestore Web, their source
 
 ## Model Registry
 
-| ID                        | Name                     | Pipeline     | License           | Size    | Source                                           |
-| ------------------------- | ------------------------ | ------------ | ----------------- | ------- | ------------------------------------------------ |
-| `realesrgan-x4plus`       | Real-ESRGAN x4plus       | Upscale      | BSD-3-Clause      | ~64 MB  | [GitHub](https://github.com/xinntao/Real-ESRGAN) |
-| `realesrgan-x4plus-anime` | Real-ESRGAN x4plus Anime | Upscale      | BSD-3-Clause      | ~64 MB  | [GitHub](https://github.com/xinntao/Real-ESRGAN) |
-| `gfpgan-v1.4`             | GFPGAN v1.4              | Face Restore | Apache-2.0        | ~332 MB | [GitHub](https://github.com/TencentARC/GFPGAN)   |
-| `codeformer`              | CodeFormer               | Face Restore | S-Lab License 1.0 | ~357 MB | [GitHub](https://github.com/sczhou/CodeFormer)   |
-| `lama`                    | LaMa                     | Inpaint      | Apache-2.0        | ~200 MB | [GitHub](https://github.com/advimman/lama)       |
-| `scunet`                  | SCUNet                   | Denoise      | Apache-2.0        | ~143 MB | [GitHub](https://github.com/cszn/SCUNet)         |
+| ID                        | Name                     | Pipeline     | License      | Size   | Input     | Source                                         |
+| ------------------------- | ------------------------ | ------------ | ------------ | ------ | --------- | ---------------------------------------------- |
+| `realesrgan-x4plus`       | Real-ESRGAN x4plus       | Upscale      | BSD-3-Clause | 85 MB  | 1×3×64×64 | `imgdesignart/realesrgan-x4-onnx` (HF)         |
+| `realesrgan-x4plus-anime` | Real-ESRGAN x4plus Anime | Upscale      | BSD-3-Clause | 85 MB  | 1×3×64×64 | `imgdesignart/realesrgan-x4-onnx` (HF)         |
+| `cugan-up4x`              | Real-CUGAN Up×4          | Upscale      | MIT          | 2 MB   | 1×3×64×64 | `AmusementClub/vs-mlrt` (GitHub)               |
+| `cugan-up4x-denoise`      | Real-CUGAN Up×4 Denoise  | Upscale      | MIT          | 2 MB   | 1×3×64×64 | `AmusementClub/vs-mlrt` (GitHub)               |
+| `gfpgan-v1.4`             | GFPGAN v1.4              | Face Restore | Apache-2.0   | 325 MB | 1×3×512×512 | `neurobytemind/GFPGANv1.4.onnx` (HF)          |
+| `codeformer`              | CodeFormer               | Face Restore | S-Lab        | 359 MB | 1×3×512×512 | `bluefoxcreation/Codeformer-ONNX` (HF)         |
+| `lama`                    | LaMa                     | Inpaint      | Apache-2.0   | 200 MB | 1×4×512×512 | `Carve/LaMa-ONNX` (HF)                         |
+| `drunet`                  | DRUNet                   | Denoise      | Apache-2.0   | 18 MB  | 1×3×256×256 | `AmusementClub/vs-mlrt` (GitHub)               |
+| `drunet-deblock`          | DRUNet Deblock           | Denoise      | Apache-2.0   | 18 MB  | 1×3×256×256 | `AmusementClub/vs-mlrt` (GitHub)               |
 
 ## Notes
 
 - All models are served as ONNX format.
-- Models are downloaded on demand and cached in the browser's Cache API.
-- SHA-256 checksums are verified after download.
+- Models are placed in `public/models/` and loaded from the same origin.
+- Model URLs are configurable in `src/ml/modelRegistry.ts`.
+- SHA-256 checksums are verified after download (when provided).
 - No model data is included in the repository.
+- SCUNet was removed — not available as ONNX. Replaced by DRUNet.
