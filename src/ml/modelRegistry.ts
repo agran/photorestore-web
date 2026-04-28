@@ -69,6 +69,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.nmkd-superscale',
     pipeline: 'upscale',
     tags: ['upscale', 'general', 'photo'],
+    forceWasm: true,
   },
   {
     id: 'nomos8ksc',
@@ -81,6 +82,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.nomos8ksc',
     pipeline: 'upscale',
     tags: ['upscale', 'general', 'photo'],
+    forceWasm: true,
   },
   {
     id: 'lsdir-dat',
@@ -93,6 +95,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.lsdir-dat',
     pipeline: 'upscale',
     tags: ['upscale', 'general', 'photo'],
+    forceWasm: true,
   },
   {
     id: 'gfpgan-v1.4',
