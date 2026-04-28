@@ -1,10 +1,7 @@
 export interface ModelMeta {
   id: string;
   name: string;
-  /** Local path relative to public/ (e.g. models/realesrgan-x4plus.onnx) */
   url: string;
-  /** Remote download URL */
-  downloadUrl: string;
   sizeBytes: number;
   sha256: string;
   /** Expected input tensor shape [N, C, H, W] */
@@ -16,12 +13,19 @@ export interface ModelMeta {
   tags: string[];
 }
 
+function modelUrl(filename: string): string {
+  if (import.meta.env.DEV) {
+    return `models/${filename}`;
+  }
+  return `https://www.erudit23.ru/models/${filename}`;
+}
+
 const MODELS: ModelMeta[] = [
   {
     id: 'realesrgan-x4plus',
     name: 'Real-ESRGAN x4plus',
-    url: 'models/realesrgan-x4plus-128.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/realesrgan-x4plus-128.onnx',
+    url: `${CDN}/realesrgan-x4plus-128.onnx`,
+    downloadUrl: `${CDN}/realesrgan-x4plus-128.onnx`,
     sizeBytes: 67_160_311,
     sha256: '6a6f4a3d58553d40fdd443d9e5f4b2deb9b52bef1ec2947700fc2167ac876c7d',
     inputShape: [1, 3, 128, 128],
@@ -33,8 +37,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'cugan-up4x',
     name: 'Real-CUGAN Up×4',
-    url: 'models/cugan-up4x.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/cugan-up4x.onnx',
+    url: `${CDN}/cugan-up4x.onnx`,
+    downloadUrl: `${CDN}/cugan-up4x.onnx`,
     sizeBytes: 2_097_152,
     sha256: '',
     inputShape: [1, 3, 64, 64],
@@ -46,8 +50,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'cugan-up4x-denoise',
     name: 'Real-CUGAN Up×4 Denoise',
-    url: 'models/cugan-up4x-denoise.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/cugan-up4x-denoise.onnx',
+    url: `${CDN}/cugan-up4x-denoise.onnx`,
+    downloadUrl: `${CDN}/cugan-up4x-denoise.onnx`,
     sizeBytes: 2_097_152,
     sha256: '',
     inputShape: [1, 3, 64, 64],
@@ -59,8 +63,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'gfpgan-v1.4',
     name: 'GFPGAN v1.4',
-    url: 'models/gfpgan-v1.4.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/gfpgan-v1.4.onnx',
+    url: `${CDN}/gfpgan-v1.4.onnx`,
+    downloadUrl: `${CDN}/gfpgan-v1.4.onnx`,
     sizeBytes: 348_000_000,
     sha256: '',
     inputShape: [1, 3, 512, 512],
@@ -72,8 +76,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'codeformer',
     name: 'CodeFormer',
-    url: 'models/codeformer.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/codeformer.onnx',
+    url: `${CDN}/codeformer.onnx`,
+    downloadUrl: `${CDN}/codeformer.onnx`,
     sizeBytes: 375_000_000,
     sha256: '',
     inputShape: [1, 3, 512, 512],
@@ -85,8 +89,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'lama',
     name: 'LaMa',
-    url: 'models/lama.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/lama.onnx',
+    url: `${CDN}/lama.onnx`,
+    downloadUrl: `${CDN}/lama.onnx`,
     sizeBytes: 210_000_000,
     sha256: '',
     inputShape: [1, 4, 512, 512],
@@ -98,8 +102,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'scunet',
     name: 'SCUNet',
-    url: 'models/scunet.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/scunet.onnx',
+    url: `${CDN}/scunet.onnx`,
+    downloadUrl: `${CDN}/scunet.onnx`,
     sizeBytes: 150_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],
@@ -111,8 +115,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'drunet',
     name: 'DRUNet',
-    url: 'models/drunet_color.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/drunet_color.onnx',
+    url: `${CDN}/drunet_color.onnx`,
+    downloadUrl: `${CDN}/drunet_color.onnx`,
     sizeBytes: 18_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],
@@ -124,8 +128,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'drunet-deblock',
     name: 'DRUNet Deblock',
-    url: 'models/drunet_deblocking_color.onnx',
-    downloadUrl: 'https://www.erudit23.ru/models/drunet_deblocking_color.onnx',
+    url: `${CDN}/drunet_deblocking_color.onnx`,
+    downloadUrl: `${CDN}/drunet_deblocking_color.onnx`,
     sizeBytes: 18_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],
