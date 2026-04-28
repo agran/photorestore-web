@@ -1,0 +1,97 @@
+{
+  "common": {
+    "appName": "PhotoRestore Web",
+    "download": "Download",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "loading": "Loading…",
+    "processing": "Processing…",
+    "apply": "Apply",
+    "reset": "Reset"
+  },
+  "home": {
+    "heroTitle": "Restore Your Photos with AI",
+    "heroSubtitle": "Upscale, denoise, and revive old photos — entirely in your browser, no data leaves your device.",
+    "dropHint": "Drop an image here or click to select",
+    "dropHintFormats": "PNG, JPG, WEBP up to 32 MB",
+    "features": {
+      "upscale": "4× Super Resolution",
+      "upscaleDesc": "Real-ESRGAN AI upscaling preserving fine details",
+      "faceRestore": "Face Restoration",
+      "faceRestoreDesc": "GFPGAN / CodeFormer for sharp portrait faces",
+      "inpaint": "AI Inpainting",
+      "inpaintDesc": "LaMa-powered removal of unwanted objects",
+      "denoise": "Smart Denoising",
+      "denoiseDesc": "SCUNet blind denoising without losing sharpness",
+      "privacy": "100% Private",
+      "privacyDesc": "All processing happens locally — nothing is uploaded"
+    },
+    "goToEditor": "Open Editor",
+    "learnMore": "Learn More"
+  },
+  "editor": {
+    "empty": {
+      "title": "No image loaded",
+      "description": "Drop an image or go back to Home to upload one",
+      "action": "Go to Home"
+    },
+    "tools": {
+      "title": "Tools",
+      "upscale": "Upscale ×4",
+      "faceRestore": "Face Restore",
+      "inpaint": "Inpaint",
+      "denoise": "Denoise"
+    },
+    "compare": "Compare Before / After",
+    "history": "History",
+    "download": "Download Result",
+    "undo": "Undo",
+    "sliderLabel": "Drag to compare"
+  },
+  "about": {
+    "title": "About PhotoRestore Web",
+    "description": "PhotoRestore Web is an open-source project that brings AI photo restoration to the browser using ONNX Runtime Web with WebGPU acceleration.",
+    "privacy": {
+      "title": "Privacy Guarantee",
+      "description": "All ML inference runs 100% client-side. Your images are never uploaded to any server."
+    },
+    "models": {
+      "title": "Models & Licenses",
+      "description": "PhotoRestore Web uses publicly available ONNX models. See the MODELS.md document for full details on sources and licenses."
+    },
+    "source": "Source Code",
+    "license": "MIT License"
+  },
+  "settings": {
+    "language": "Language",
+    "theme": "Theme",
+    "backend": "Compute backend",
+    "themes": {
+      "light": "Light",
+      "dark": "Dark",
+      "system": "System"
+    },
+    "backends": {
+      "webgpu": "WebGPU (GPU)",
+      "wasm": "WASM (CPU)"
+    }
+  },
+  "model": {
+    "downloadTitle": "Download Model",
+    "downloading": "Downloading {{name}}…",
+    "progress": "{{percent}}% — {{mb}} MB / {{totalMb}} MB",
+    "cached": "Model cached",
+    "notCached": "Not downloaded yet",
+    "download": "Download",
+    "size": "Size: {{size}}",
+    "license": "License: {{license}}"
+  },
+  "errors": {
+    "oom": "Out of memory — try a smaller image or tile size",
+    "loadFailed": "Failed to load model: {{message}}",
+    "unsupportedFormat": "Unsupported file format",
+    "fileTooLarge": "File is too large (max 32 MB)",
+    "webgpuUnavailable": "WebGPU is not available in this browser, falling back to WASM"
+  }
+}
