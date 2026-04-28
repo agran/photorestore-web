@@ -93,7 +93,8 @@ export async function upscale(
 
   const api = getWorker();
   console.log('[Upscale] Creating worker session...');
-  const backend = await api.initSession(Comlink.transfer(modelBuffer, [modelBuffer]), model.url, 'webgpu');
+  const preferredBackend = model.forceWasm ? 'wasm' : 'webgpu';
+  const backend = await api.initSession(Comlink.transfer(modelBuffer, [modelBuffer]), model.url, preferredBackend);
   console.log(`[Upscale] Session ready, backend: ${backend}`);
   options.onProgress?.(25);
   console.log(
