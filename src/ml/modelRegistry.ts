@@ -24,8 +24,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'realesrgan-x4plus',
     name: 'Real-ESRGAN x4plus',
-    url: `${CDN}/realesrgan-x4plus-128.onnx`,
-    downloadUrl: `${CDN}/realesrgan-x4plus-128.onnx`,
+    url: modelUrl('realesrgan-x4plus-128.onnx'),
     sizeBytes: 67_160_311,
     sha256: '6a6f4a3d58553d40fdd443d9e5f4b2deb9b52bef1ec2947700fc2167ac876c7d',
     inputShape: [1, 3, 128, 128],
@@ -37,8 +36,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'cugan-up4x',
     name: 'Real-CUGAN Up×4',
-    url: `${CDN}/cugan-up4x.onnx`,
-    downloadUrl: `${CDN}/cugan-up4x.onnx`,
+    url: modelUrl('cugan-up4x.onnx'),
     sizeBytes: 2_097_152,
     sha256: '',
     inputShape: [1, 3, 64, 64],
@@ -50,8 +48,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'cugan-up4x-denoise',
     name: 'Real-CUGAN Up×4 Denoise',
-    url: `${CDN}/cugan-up4x-denoise.onnx`,
-    downloadUrl: `${CDN}/cugan-up4x-denoise.onnx`,
+    url: modelUrl('cugan-up4x-denoise.onnx'),
     sizeBytes: 2_097_152,
     sha256: '',
     inputShape: [1, 3, 64, 64],
@@ -63,8 +60,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'gfpgan-v1.4',
     name: 'GFPGAN v1.4',
-    url: `${CDN}/gfpgan-v1.4.onnx`,
-    downloadUrl: `${CDN}/gfpgan-v1.4.onnx`,
+    url: modelUrl('gfpgan-v1.4.onnx'),
     sizeBytes: 348_000_000,
     sha256: '',
     inputShape: [1, 3, 512, 512],
@@ -76,8 +72,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'codeformer',
     name: 'CodeFormer',
-    url: `${CDN}/codeformer.onnx`,
-    downloadUrl: `${CDN}/codeformer.onnx`,
+    url: modelUrl('codeformer.onnx'),
     sizeBytes: 375_000_000,
     sha256: '',
     inputShape: [1, 3, 512, 512],
@@ -89,8 +84,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'lama',
     name: 'LaMa',
-    url: `${CDN}/lama.onnx`,
-    downloadUrl: `${CDN}/lama.onnx`,
+    url: modelUrl('lama.onnx'),
     sizeBytes: 210_000_000,
     sha256: '',
     inputShape: [1, 4, 512, 512],
@@ -102,8 +96,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'scunet',
     name: 'SCUNet',
-    url: `${CDN}/scunet.onnx`,
-    downloadUrl: `${CDN}/scunet.onnx`,
+    url: modelUrl('scunet.onnx'),
     sizeBytes: 150_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],
@@ -115,8 +108,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'drunet',
     name: 'DRUNet',
-    url: `${CDN}/drunet_color.onnx`,
-    downloadUrl: `${CDN}/drunet_color.onnx`,
+    url: modelUrl('drunet_color.onnx'),
     sizeBytes: 18_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],
@@ -128,8 +120,7 @@ const MODELS: ModelMeta[] = [
   {
     id: 'drunet-deblock',
     name: 'DRUNet Deblock',
-    url: `${CDN}/drunet_deblocking_color.onnx`,
-    downloadUrl: `${CDN}/drunet_deblocking_color.onnx`,
+    url: modelUrl('drunet_deblocking_color.onnx'),
     sizeBytes: 18_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],
