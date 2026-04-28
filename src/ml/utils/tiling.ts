@@ -112,7 +112,9 @@ export function mergeTiles(
   srcW: number,
   srcH: number
 ): HTMLCanvasElement {
-  const { tileSize, overlap, scale } = opts;
+  const { scale } = opts;
+  // tileSize and overlap are used during split; here we only need scale
+  // to compute output dimensions from src dimensions
 
   const outW = srcW * scale;
   const outH = srcH * scale;
@@ -175,10 +177,6 @@ export function mergeTiles(
   }
 
   outCtx.putImageData(outData, 0, 0);
-
-  // Suppress unused variable warning for overlap/tileSize
-  void tileSize;
-  void overlap;
 
   return outCanvas;
 }
