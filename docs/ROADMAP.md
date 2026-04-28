@@ -19,12 +19,11 @@
 
 ## v0.2 — Real Upscaling ✅
 
-- [x] Real-ESRGAN x4plus integration
-- [x] Real-ESRGAN x4plus-anime integration
+- [x] Real-ESRGAN x4plus (128×128 tile, 67 MB, bukuroo/RealESRGAN-ONNX)
 - [x] Real-CUGAN Up×4 (conservative)
 - [x] Real-CUGAN Up×4 Denoise
 - [x] Inference worker (ORT session + tensor inference via Comlink)
-- [x] Tiling with model-input padding (64×64 tiles → pad → infer → crop → blend)
+- [x] Tiling with model-input padding (pad → infer → crop → cosine-window blend)
 - [x] Model download progress + per-tile inference progress in ProgressBar
 - [x] WebGPU/WASM backend auto-detection with timeout
 - [x] Console logging: model name, input size, backend
