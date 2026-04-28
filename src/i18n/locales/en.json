@@ -109,7 +109,7 @@
   },
   "errors": {
     "oom": "Out of memory — try a smaller image or tile size",
-    "loadFailed": "Failed to load model: {{message}}",
+    "pipelineFailed": "Processing failed",
     "unsupportedFormat": "Unsupported file format",
     "fileTooLarge": "File is too large (max 32 MB)",
     "webgpuUnavailable": "WebGPU is not available in this browser, falling back to WASM"

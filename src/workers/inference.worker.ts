@@ -1,36 +1,91 @@
+import * as ort from 'onnxruntime-web';
 import * as Comlink from 'comlink';
 
-/**
- * Inference worker — runs ONNX model inference off the main thread.
- * TODO: implement actual inference pipelines.
- */
+self.onerror = (e) => console.error('[ORT Worker]', e);
+self.onunhandledrejection = (e) => console.error('[ORT Worker] Unhandled:', e.reason);
+
+type BackendType = 'webgpu' | 'wasm';
+
+const sessions = new Map<string, ort.InferenceSession>();
+
+function setupRuntime(numThreads: number, enableSIMD: boolean) {
+  ort.env.wasm.numThreads = numThreads;
+  ort.env.wasm.simd = enableSIMD;
+}
+
+async function detectBackend(): Promise<BackendType> {
+  const gpu = (
+    self as unknown as { navigator?: { gpu?: { requestAdapter(): Promise<unknown> } } }
+  ).navigator?.gpu;
+  if (!gpu) return 'wasm';
+
+  try {
+    const adapter = await Promise.race([
+      gpu.requestAdapter(),
+      new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('WebGPU adapter timeout')), 3000)
+      ),
+    ]);
+    if (adapter) return 'webgpu';
+  } catch {
+    // timeout or error — fall back to WASM
+  }
+  return 'wasm';
+}
 
 export interface InferenceWorkerApi {
-  /** Initialize the ORT session for a given model */
-  initSession(modelUrl: string, backend: 'webgpu' | 'wasm'): Promise<void>;
-  /** Run inference on raw image data */
-  runInference(inputData: Float32Array, width: number, height: number): Promise<Float32Array>;
-  /** Terminate and release session */
+  initSession(modelBuffer: ArrayBuffer, modelUrl: string, backend: BackendType): Promise<BackendType>;
+  run(inputTensor: Float32Array, inputShape: number[], modelUrl: string): Promise<Float32Array>;
   destroy(): Promise<void>;
 }
 
 const api: InferenceWorkerApi = {
-  async initSession(_modelUrl: string, _backend: 'webgpu' | 'wasm'): Promise<void> {
-    // TODO: create ORT InferenceSession via runtime.ts createSession
+  async initSession(modelBuffer, modelUrl, backend) {
+    if (sessions.has(modelUrl)) return backend;
+
+    console.log('[ORT] Detecting backend...');
+    const detectedBackend = await detectBackend();
+    console.log(`[ORT] Detected: ${detectedBackend}`);
+    const effectiveBackend =
+      backend === 'webgpu' && detectedBackend === 'webgpu' ? 'webgpu' : 'wasm';
+
+    console.log(
+      `[ORT] Backend: ${effectiveBackend.toUpperCase()}${effectiveBackend === 'webgpu' ? ' (GPU)' : ' (CPU)'}`
+    );
+
+    setupRuntime(4, true);
+    console.log('[ORT] Creating InferenceSession...');
+    const session = await ort.InferenceSession.create(modelBuffer, {
+      executionProviders: effectiveBackend === 'webgpu' ? ['webgpu', 'wasm'] : ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
+    console.log('[ORT] Session created');
+
+    sessions.set(modelUrl, session);
+    return effectiveBackend;
   },
 
-  async runInference(
-    _inputData: Float32Array,
-    _width: number,
-    _height: number
-  ): Promise<Float32Array> {
-    // TODO: run session.run() and return output tensor data
-    await Promise.resolve(); // placeholder
-    return new Float32Array(0);
+  async run(inputTensor, inputShape, modelUrl) {
+    const session = sessions.get(modelUrl);
+    if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
+
+    const inputName = session.inputNames[0];
+    const outputName = session.outputNames[0];
+
+    const feeds: Record<string, ort.Tensor> = {
+      [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
+    };
+
+    const results = await session.run(feeds);
+    const output = results[outputName];
+
+    return new Float32Array(output.data as Float32Array);
   },
 
-  async destroy(): Promise<void> {
-    // TODO: session.release()
+  async destroy() {
+    const releases = Array.from(sessions.values()).map((s) => s.release());
+    await Promise.all(releases);
+    sessions.clear();
   },
 };
 
