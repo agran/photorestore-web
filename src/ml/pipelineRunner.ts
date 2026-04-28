@@ -4,11 +4,12 @@ import { upscale, type UpscaleOptions, isModelCached } from '@/ml/pipelines/upsc
 import { faceRestore, type FaceRestoreOptions } from '@/ml/pipelines/faceRestore';
 import { inpaint, type InpaintOptions } from '@/ml/pipelines/inpaint';
 import { denoise, type DenoiseOptions } from '@/ml/pipelines/denoise';
+import { anonymize, type AnonymizeOptions } from '@/ml/pipelines/anonymize';
 import { getModel } from '@/ml/modelRegistry';
 
-export type PipelineType = 'upscale' | 'faceRestore' | 'inpaint' | 'denoise';
+export type PipelineType = 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | 'anonymize';
 
-type PipelineOptions = UpscaleOptions | FaceRestoreOptions | InpaintOptions | DenoiseOptions;
+type PipelineOptions = UpscaleOptions | FaceRestoreOptions | InpaintOptions | DenoiseOptions | AnonymizeOptions;
 
 function loadImageToCanvas(url: string): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
@@ -88,6 +89,9 @@ export async function runPipeline(type: PipelineType, options?: PipelineOptions)
       }
       case 'denoise':
         result = await denoise(canvas, options as DenoiseOptions);
+        break;
+      case 'anonymize':
+        result = await anonymize(canvas, options);
         break;
       default:
         throw new Error(`Unknown pipeline: ${String(type)}`);

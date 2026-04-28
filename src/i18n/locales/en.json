@@ -33,6 +33,8 @@
       "inpaintDesc": "LaMa-powered removal of unwanted objects",
       "denoise": "Smart Denoising",
       "denoiseDesc": "SCUNet blind denoising without losing sharpness",
+      "anonymize": "Hide Faces",
+      "anonymizeDesc": "Auto-detect faces and apply blur, pixelate or emoji",
       "privacy": "100% Private",
       "privacyDesc": "All processing happens locally — nothing is uploaded"
     },
@@ -50,7 +52,8 @@
       "upscale": "Upscale ×4",
       "faceRestore": "Face Restore",
       "inpaint": "Inpaint",
-      "denoise": "Denoise"
+      "denoise": "Denoise",
+      "anonymize": "Hide Faces"
     },
     "compare": "Compare Before / After",
     "history": "History",
@@ -124,6 +127,33 @@
     "gfpgan-v1.4": "GFPGAN v1.4 — face restoration with generative prior",
     "codeformer": "CodeFormer — robust face restoration with fidelity control",
     "lama": "LaMa — large mask inpainting with Fourier convolutions",
-    "scunet": "SCUNet — blind image denoising without sacrificing sharpness"
+    "scunet": "SCUNet — blind image denoising without sacrificing sharpness",
+    "scrfd-10g": "SCRFD-10G-KPS — high-quality face detector with 5-point keypoints",
+    "scrfd-500m": "SCRFD-500M — fast lightweight face detector",
+    "yunet-2023": "YuNet 2023 — ultra-lightweight face detector (75K params)",
+    "retinaface-mbn025": "RetinaFace-MobileNet0.25 — robust to profiles and occlusion",
+    "blazeface": "BlazeFace — fastest detector, best for real-time use"
+  },
+  "anonymize": {
+    "title": "Hide Faces",
+    "detect": "Detect Faces",
+    "apply": "Apply Effect",
+    "facesFound": "{{count}} faces found",
+    "noFaces": "No faces detected",
+    "effect": "Effect",
+    "effects": {
+      "blur": "Blur",
+      "pixelate": "Pixelate",
+      "solid": "Solid Fill",
+      "emoji": "Emoji"
+    },
+    "blurRadius": "Blur Radius",
+    "pixelateSize": "Block Size",
+    "color": "Color",
+    "padding": "Padding",
+    "feather": "Feather",
+    "preview": "Preview",
+    "emojiRandom": "Random",
+    "ellipse": "Oval"
   }
 }

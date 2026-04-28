@@ -9,7 +9,7 @@ export interface ModelMeta {
   license: string;
   /** i18n key for description */
   descriptionKey: string;
-  pipeline: 'upscale' | 'faceRestore' | 'inpaint' | 'denoise';
+  pipeline: 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | 'anonymize';
   tags: string[];
   forceWasm?: boolean;
 }
@@ -168,6 +168,67 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.drunet-deblock',
     pipeline: 'denoise',
     tags: ['denoise', 'deblock'],
+  },
+  {
+    id: 'scrfd-10g',
+    name: 'SCRFD-10G-KPS',
+    url: modelUrl('scrfd_10g_gnkps.onnx'),
+    sizeBytes: 16_273_449,
+    sha256: '',
+    inputShape: [1, 3, 640, 640],
+    license: 'Apache-2.0',
+    descriptionKey: 'models.scrfd-10g',
+    pipeline: 'anonymize',
+    tags: ['face', 'detect', 'kps', 'quality'],
+    forceWasm: true,
+  },
+  {
+    id: 'scrfd-500m',
+    name: 'SCRFD-500M',
+    url: modelUrl('scrfd_500m.onnx'),
+    sizeBytes: 2_527_360,
+    sha256: '',
+    inputShape: [1, 3, 640, 640],
+    license: 'MIT',
+    descriptionKey: 'models.scrfd-500m',
+    pipeline: 'anonymize',
+    tags: ['face', 'detect', 'lightweight'],
+  },
+  {
+    id: 'yunet-2023',
+    name: 'YuNet 2023',
+    url: modelUrl('face_detection_yunet_2023mar.onnx'),
+    sizeBytes: 230_686,
+    sha256: '',
+    inputShape: [1, 3, 640, 640],
+    license: 'MIT',
+    descriptionKey: 'models.yunet-2023',
+    pipeline: 'anonymize',
+    tags: ['face', 'detect', 'lightweight'],
+  },
+  {
+    id: 'retinaface-mbn025',
+    name: 'RetinaFace-MobileNet0.25',
+    url: modelUrl('retinaface_mbn025.onnx'),
+    sizeBytes: 1_740_576,
+    sha256: '',
+    inputShape: [1, 3, 640, 640],
+    license: 'MIT',
+    descriptionKey: 'models.retinaface-mbn025',
+    pipeline: 'anonymize',
+    tags: ['face', 'detect'],
+  },
+  {
+    id: 'blazeface',
+    name: 'BlazeFace',
+    url: modelUrl('blazeface.onnx'),
+    sizeBytes: 534_720,
+    sha256: '',
+    inputShape: [1, 3, 128, 128],
+    license: 'Apache-2.0',
+    descriptionKey: 'models.blazeface',
+    pipeline: 'anonymize',
+    tags: ['face', 'detect', 'lightweight'],
   },
 ];
 

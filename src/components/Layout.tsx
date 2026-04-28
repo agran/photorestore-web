@@ -9,7 +9,6 @@ export default function Layout() {
 
   useEffect(() => {
     applyTheme(theme);
-    // Also listen for system preference changes
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const handler = () => {
       if (theme === 'system') applyTheme('system');
@@ -19,9 +18,9 @@ export default function Layout() {
   }, [theme]);
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="grid min-h-screen" style={{ gridTemplateRows: 'auto 1fr auto' }}>
       <Header />
-      <main className="flex-1">
+      <main className="min-h-0">
         <Outlet />
       </main>
       <Footer />

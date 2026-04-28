@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Wand2, User, Brush, Zap } from 'lucide-react';
+import { Wand2, User, Brush, Zap, EyeOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { useEditorStore } from '@/store/editorStore';
@@ -11,7 +11,7 @@ import { getModelsByPipeline, type ModelMeta } from '@/ml/modelRegistry';
 
 const upscaleModels = getModelsByPipeline('upscale');
 
-export default function ToolPanel() {
+export default function ToolPanel({ onAnonymize }: { onAnonymize?: (modelId: string) => void }) {
   const { t } = useTranslation();
   const { currentImageUrl, activeJob } = useEditorStore();
   const isRunning = activeJob?.status === 'running';
@@ -112,6 +112,20 @@ export default function ToolPanel() {
         >
           <Wand2 className="h-4 w-4" />
           {t('editor.tools.denoise')}
+        </Button>
+
+        {/* Anonymize */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          disabled={isRunning}
+          onClick={() => {
+            onAnonymize?.('scrfd-500m');
+          }}
+        >
+          <EyeOff className="h-4 w-4" />
+          {t('editor.tools.anonymize')}
         </Button>
       </CardContent>
     </Card>

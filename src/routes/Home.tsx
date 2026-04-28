@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Zap, User, Brush, Wand2, Shield } from 'lucide-react';
+import { Zap, User, Brush, Wand2, Shield, EyeOff } from 'lucide-react';
 import Dropzone from '@/components/Dropzone';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -26,6 +26,11 @@ const FEATURES = [
     icon: <Wand2 className="h-6 w-6 text-primary" />,
     titleKey: 'home.features.denoise',
     descKey: 'home.features.denoiseDesc',
+  },
+  {
+    icon: <EyeOff className="h-6 w-6 text-primary" />,
+    titleKey: 'home.features.anonymize',
+    descKey: 'home.features.anonymizeDesc',
   },
   {
     icon: <Shield className="h-6 w-6 text-primary" />,

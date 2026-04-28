@@ -36,6 +36,11 @@ async function detectBackend(): Promise<BackendType> {
 export interface InferenceWorkerApi {
   initSession(modelBuffer: ArrayBuffer, modelUrl: string, backend: BackendType): Promise<BackendType>;
   run(inputTensor: Float32Array, inputShape: number[], modelUrl: string): Promise<Float32Array>;
+  runMulti(
+    inputTensor: Float32Array,
+    inputShape: number[],
+    modelUrl: string
+  ): Promise<Record<string, { data: Float32Array; dims: number[] }>>;
   destroy(): Promise<void>;
 }
 
@@ -80,6 +85,29 @@ const api: InferenceWorkerApi = {
     const output = results[outputName];
 
     return new Float32Array(output.data as Float32Array);
+  },
+
+  async runMulti(inputTensor, inputShape, modelUrl) {
+    const session = sessions.get(modelUrl);
+    if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
+
+    const inputName = session.inputNames[0];
+
+    const feeds: Record<string, ort.Tensor> = {
+      [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
+    };
+
+    const results = await session.run(feeds);
+
+    const record: Record<string, { data: Float32Array; dims: number[] }> = {};
+    for (const name of session.outputNames) {
+      const output = results[name];
+      record[name] = {
+        data: new Float32Array(output.data as Float32Array),
+        dims: output.dims.slice(),
+      };
+    }
+    return record;
   },
 
   async destroy() {
