@@ -19,16 +19,24 @@
 
 ## v0.2 — Реальный апскейл ✅
 
-- [x] Интеграция Real-ESRGAN x4plus
-- [x] Интеграция Real-ESRGAN x4plus-anime
-- [x] Real-CUGAN Up×4 (conservative)
-- [x] Real-CUGAN Up×4 Denoise
+- [x] Real-ESRGAN x4plus (тайл 128×128, 67 МБ, bukuroo) — WebGPU
+- [x] NMKD Superscale (тайл 128×128, 64 МБ, RRDBNet, сконвертирован pth→ONNX) — WASM
+- [x] 4xNomos8kSC (тайл 128×128, 64 МБ, ONNX от nesaorg) — WASM
+- [x] 4xLSDIR-DAT (тайл 256×256, 62 МБ, архитектура DAT, ONNX от nesaorg) — WASM
+- [x] Real-CUGAN Up×4 + Real-CUGAN Up×4 Denoise (по 2 МБ) — WebGPU
+- [x] Обновление ONNX Runtime Web до 1.26.0-dev
+- [x] Загрузка моделей с CDN (`erudit23.ru/models/`) в production
+- [x] Оптимизация графа Constant → Initializer (требование ORT WebGPU)
+- [x] Флаг `forceWasm` для моделей, несовместимых с WebGPU JSEP
 - [x] Воркер инференса (ORT-сессия + тензоры через Comlink)
-- [x] Тайлинг с паддингом под размер модели (64×64 → пад → инференс → кроп → бленд)
+- [x] Тайлинг с паддингом под размер модели (пад → инференс → кроп → cosine-window бленд)
 - [x] Прогресс загрузки моделей и потайлового инференса в ProgressBar
-- [x] Авто-детекция WebGPU/WASM с таймаутом
+- [x] Авто-детекция WebGPU/WASM с таймаутом 3с
 - [x] Логи в консоль: модель, размер входа, бэкенд
 - [x] Селектор моделей в ToolPanel (выпадающий список всех upscale-моделей)
+- [x] BrowserRouter basename для маршрутизации на GitHub Pages
+- [x] Vite `base` конфиг для путей ассетов на GitHub Pages
+- [x] GitHub Actions CI + деплой на GitHub Pages (источник: Actions, не ветка)
 
 ## v0.3 — Восстановление лиц
 

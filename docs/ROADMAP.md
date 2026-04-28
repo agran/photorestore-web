@@ -19,18 +19,24 @@
 
 ## v0.2 — Real Upscaling ✅
 
-- [x] Real-ESRGAN x4plus (128×128 tile, 67 MB, bukuroo/RealESRGAN-ONNX)
-- [x] Real-CUGAN Up×4 (conservative)
-- [x] Real-CUGAN Up×4 Denoise
+- [x] Real-ESRGAN x4plus (128×128 tile, 67 MB, bukuroo) — WebGPU
+- [x] NMKD Superscale (128×128 tile, 64 MB, RRDBNet, converted pth→ONNX) — WASM
+- [x] 4xNomos8kSC (128×128 tile, 64 MB, nesaorg ONNX) — WASM
+- [x] 4xLSDIR-DAT (256×256 tile, 62 MB, DAT backbone, nesaorg ONNX) — WASM
+- [x] Real-CUGAN Up×4 + Real-CUGAN Up×4 Denoise (2 MB each) — WebGPU
+- [x] ONNX Runtime Web 1.26.0-dev upgrade
+- [x] CDN-based model loading (`erudit23.ru/models/`) for production
+- [x] Constant → Initializer graph optimization (ORT WebGPU requirement)
+- [x] `forceWasm` flag for models incompatible with WebGPU JSEP
 - [x] Inference worker (ORT session + tensor inference via Comlink)
 - [x] Tiling with model-input padding (pad → infer → crop → cosine-window blend)
 - [x] Model download progress + per-tile inference progress in ProgressBar
-- [x] WebGPU/WASM backend auto-detection with timeout
+- [x] WebGPU/WASM backend auto-detection with 3s timeout
 - [x] Console logging: model name, input size, backend
 - [x] Model selector in ToolPanel (dropdown with all upscale models)
-- [x] NMKD Superscale (64 MB, RRDBNet, high-fidelity clean photo upscaling)
-- [x] 4xNomos8kSC (64 MB, ONNX from nesaorg, top photo quality)
-- [x] 4xLSDIR-DAT (62 MB, ONNX from nesaorg, DAT backbone)
+- [x] BrowserRouter basename for GitHub Pages routing
+- [x] Vite `base` config for GitHub Pages asset paths
+- [x] GitHub Actions CI + GitHub Pages deploy (source: Actions, not branch)
 
 ## v0.3 — Face Restoration
 
