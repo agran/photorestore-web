@@ -49,10 +49,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   pushHistory: (entry) => {
     const id = crypto.randomUUID();
     set((state) => ({
-      history: [
-        { ...entry, id, timestamp: Date.now() },
-        ...state.history,
-      ].slice(0, 20), // keep last 20 entries
+      history: [{ ...entry, id, timestamp: Date.now() }, ...state.history].slice(0, 20), // keep last 20 entries
     }));
   },
 
@@ -67,9 +64,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setJob: (job) => set({ activeJob: job }),
 
   updateJobProgress: (progress) =>
-    set((state) =>
-      state.activeJob ? { activeJob: { ...state.activeJob, progress } } : {}
-    ),
+    set((state) => (state.activeJob ? { activeJob: { ...state.activeJob, progress } } : {})),
 
   reset: () =>
     set({

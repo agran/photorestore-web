@@ -181,18 +181,9 @@ export function mergeTiles(
   return outCanvas;
 }
 
-/** Helper: create an HTMLCanvasElement of given size */
 function createCanvas(width: number, height: number): HTMLCanvasElement {
-  if (typeof document !== 'undefined') {
-    const c = document.createElement('canvas');
-    c.width = width;
-    c.height = height;
-    return c;
-  }
-  // Node / jsdom environment
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createCanvas: nc } = require('canvas') as {
-    createCanvas: (w: number, h: number) => HTMLCanvasElement;
-  };
-  return nc(width, height);
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  return c;
 }

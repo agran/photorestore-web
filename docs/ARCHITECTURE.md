@@ -5,6 +5,7 @@
 ## Overview
 
 PhotoRestore Web is a fully client-side AI photo restoration application built with:
+
 - **Vite 5 + React 18 + TypeScript 5 (strict)** — UI framework
 - **ONNX Runtime Web (WebGPU + WASM)** — ML inference engine
 - **Zustand 4** — state management
@@ -57,6 +58,7 @@ ImageCompare (before/after slider)
 ## ML Pipeline Architecture
 
 Each pipeline in `src/ml/pipelines/` follows the same interface:
+
 - Takes `HTMLCanvasElement` + options
 - Returns `Promise<{ canvas: HTMLCanvasElement, ... }>`
 - Internally uses `tiling.ts` for large images and `tensor.ts` for conversions

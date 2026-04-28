@@ -28,5 +28,12 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'warn',
     'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
   },
-  ignorePatterns: ['dist', 'node_modules', '*.cjs', 'playwright.config.ts', 'tests/e2e/**', 'tests/setup.ts'],
+  ignorePatterns: [
+    'dist',
+    'node_modules',
+    '*.cjs',
+    'playwright.config.ts',
+    'tests/e2e/**',
+    'tests/setup.ts',
+  ],
 };

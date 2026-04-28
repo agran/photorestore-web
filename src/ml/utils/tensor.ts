@@ -70,17 +70,9 @@ function clamp(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
-/** Helper: create an HTMLCanvasElement */
 function createCanvas(width: number, height: number): HTMLCanvasElement {
-  if (typeof document !== 'undefined') {
-    const c = document.createElement('canvas');
-    c.width = width;
-    c.height = height;
-    return c;
-  }
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createCanvas: nc } = require('canvas') as {
-    createCanvas: (w: number, h: number) => HTMLCanvasElement;
-  };
-  return nc(width, height);
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  return c;
 }

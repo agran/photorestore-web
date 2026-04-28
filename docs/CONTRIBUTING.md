@@ -37,6 +37,7 @@ pnpm test:e2e     # E2E tests (Playwright)
 ## ML Pipeline Contributions
 
 When adding a new pipeline:
+
 1. Add the model to `src/ml/modelRegistry.ts`
 2. Implement the pipeline in `src/ml/pipelines/`
 3. Wire it into `ToolPanel.tsx`

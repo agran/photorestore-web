@@ -37,6 +37,7 @@ pnpm test:e2e     # E2E-тесты (Playwright)
 ## Вклад в ML-пайплайны
 
 При добавлении нового пайплайна:
+
 1. Добавьте модель в `src/ml/modelRegistry.ts`
 2. Реализуйте пайплайн в `src/ml/pipelines/`
 3. Подключите его в `ToolPanel.tsx`

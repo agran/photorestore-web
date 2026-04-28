@@ -9,7 +9,9 @@ import { Toaster } from './components/ui/toaster';
 function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading…</div>}>
+      <Suspense
+        fallback={<div className="flex h-screen items-center justify-center">Loading…</div>}
+      >
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<Home />} />

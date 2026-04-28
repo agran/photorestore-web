@@ -21,6 +21,7 @@ Cross-Origin-Embedder-Policy: require-corp
 ```
 
 These headers are set in:
+
 1. `vite.config.ts` (development server)
 2. `public/coi-serviceworker.js` (production, injects headers via Service Worker)
 

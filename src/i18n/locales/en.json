@@ -1,4 +1,13 @@
 {
+  "header": {
+    "home": "Home",
+    "editor": "Editor",
+    "about": "About"
+  },
+  "footer": {
+    "mitLicense": "MIT License",
+    "github": "GitHub"
+  },
   "common": {
     "appName": "PhotoRestore Web",
     "download": "Download",
@@ -47,7 +56,18 @@
     "history": "History",
     "download": "Download Result",
     "undo": "Undo",
-    "sliderLabel": "Drag to compare"
+    "sliderLabel": "Drag to compare",
+    "noHistory": "No history yet",
+    "downloadFilename": "restored.png"
+  },
+  "imageCompare": {
+    "before": "Before",
+    "after": "After",
+    "beforeAlt": "Before image",
+    "afterAlt": "After image"
+  },
+  "dropzone": {
+    "previewAlt": "Preview"
   },
   "about": {
     "title": "About PhotoRestore Web",
@@ -93,5 +113,13 @@
     "unsupportedFormat": "Unsupported file format",
     "fileTooLarge": "File is too large (max 32 MB)",
     "webgpuUnavailable": "WebGPU is not available in this browser, falling back to WASM"
+  },
+  "models": {
+    "realesrgan-x4plus": "Real-ESRGAN x4plus — general-purpose 4× super resolution",
+    "realesrgan-x4plus-anime": "Real-ESRGAN x4plus Anime — optimized for anime and illustrations",
+    "gfpgan-v1.4": "GFPGAN v1.4 — face restoration with generative prior",
+    "codeformer": "CodeFormer — robust face restoration with fidelity control",
+    "lama": "LaMa — large mask inpainting with Fourier convolutions",
+    "scunet": "SCUNet — blind image denoising without sacrificing sharpness"
   }
 }

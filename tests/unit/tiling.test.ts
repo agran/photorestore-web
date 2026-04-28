@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { splitTiles, mergeTiles, type TileOptions, type ProcessedTile } from '@/ml/utils/tiling';
 
 /** Create a simple colored canvas for testing */
-function makeCanvas(width: number, height: number, fillStyle = 'rgb(128,64,200)'): HTMLCanvasElement {
+function makeCanvas(
+  width: number,
+  height: number,
+  fillStyle = 'rgb(128,64,200)'
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -38,9 +42,7 @@ describe('splitTiles', () => {
 
     // Check that (0,0) and (W-1,H-1) corners are covered
     const coversTopLeft = tiles.some((t) => t.srcX === 0 && t.srcY === 0);
-    const coversBottomRight = tiles.some(
-      (t) => t.srcX + t.srcW >= W && t.srcY + t.srcH >= H
-    );
+    const coversBottomRight = tiles.some((t) => t.srcX + t.srcW >= W && t.srcY + t.srcH >= H);
     expect(coversTopLeft).toBe(true);
     expect(coversBottomRight).toBe(true);
   });
@@ -57,9 +59,7 @@ describe('splitTiles', () => {
 
   it('throws when overlap >= tileSize', () => {
     const src = makeCanvas(64, 64);
-    expect(() =>
-      splitTiles(src, { tileSize: 32, overlap: 32, scale: 1 })
-    ).toThrow();
+    expect(() => splitTiles(src, { tileSize: 32, overlap: 32, scale: 1 })).toThrow();
   });
 });
 

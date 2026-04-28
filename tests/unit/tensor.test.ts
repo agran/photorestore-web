@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { canvasToNCHW, nchwToCanvas } from '@/ml/utils/tensor';
 
 /** Create a filled canvas */
-function makeCanvas(width: number, height: number, r: number, g: number, b: number): HTMLCanvasElement {
+function makeCanvas(
+  width: number,
+  height: number,
+  r: number,
+  g: number,
+  b: number
+): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
