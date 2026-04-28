@@ -117,6 +117,8 @@
   "models": {
     "realesrgan-x4plus": "Real-ESRGAN x4plus — general-purpose 4× super resolution",
     "realesrgan-x4plus-anime": "Real-ESRGAN x4plus Anime — optimized for anime and illustrations",
+    "cugan-up4x": "Real-CUGAN Up×4 — fast lightweight upscale",
+    "cugan-up4x-denoise": "Real-CUGAN Up×4 Denoise — upscale with denoising",
     "gfpgan-v1.4": "GFPGAN v1.4 — face restoration with generative prior",
     "codeformer": "CodeFormer — robust face restoration with fidelity control",
     "lama": "LaMa — large mask inpainting with Fourier convolutions",

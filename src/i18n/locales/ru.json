@@ -117,6 +117,8 @@
   "models": {
     "realesrgan-x4plus": "Real-ESRGAN x4plus — универсальное увеличение разрешения ×4",
     "realesrgan-x4plus-anime": "Real-ESRGAN x4plus Anime — оптимизирован для аниме и иллюстраций",
+    "cugan-up4x": "Real-CUGAN Up×4 — быстрый лёгкий апскейл",
+    "cugan-up4x-denoise": "Real-CUGAN Up×4 Denoise — апскейл с шумоподавлением",
     "gfpgan-v1.4": "GFPGAN v1.4 — восстановление лиц с генеративным приором",
     "codeformer": "CodeFormer — надёжное восстановление лиц с контролем fidelity",
     "lama": "LaMa — закрашивание больших масок с Fourier-свёртками",
