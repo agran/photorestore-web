@@ -2,9 +2,13 @@ export type ProgressCallback = (loaded: number, total: number) => void;
 
 const MODEL_CACHE_NAME = 'photorestore-models-v1';
 
-/**
- * Compute SHA-256 hash of an ArrayBuffer and return hex string.
- */
+function resolveUrl(rawUrl: string): string {
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+    return rawUrl;
+  }
+  return import.meta.env.BASE_URL + rawUrl;
+}
+
 async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
   return Array.from(new Uint8Array(hashBuffer))
@@ -12,11 +16,6 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
     .join('');
 }
 
-/**
- * Load a model ONNX file, using Cache API for persistence.
- * Reports progress through `onProgress` callback.
- * Optionally verifies the sha256 checksum after download.
- */
 export async function loadModel(
   url: string,
   opts: {
@@ -25,17 +24,16 @@ export async function loadModel(
   } = {}
 ): Promise<ArrayBuffer> {
   const { expectedSha256, onProgress } = opts;
+  const resolvedUrl = resolveUrl(url);
 
-  // Try cache first
   const cache = await caches.open(MODEL_CACHE_NAME);
-  const cached = await cache.match(url);
+  const cached = await cache.match(resolvedUrl);
   if (cached) {
     const buffer = await cached.arrayBuffer();
     return buffer;
   }
 
-  // Download with progress
-  const response = await fetch(url);
+  const response = await fetch(resolvedUrl);
   if (!response.ok) {
     throw new Error(`Failed to fetch model: ${response.status} ${response.statusText}`);
   }
@@ -62,7 +60,6 @@ export async function loadModel(
     }
   }
 
-  // Combine chunks
   const totalBytes = chunks.reduce((sum, c) => sum + c.byteLength, 0);
   const buffer = new ArrayBuffer(totalBytes);
   const view = new Uint8Array(buffer);
@@ -72,7 +69,6 @@ export async function loadModel(
     offset += chunk.byteLength;
   }
 
-  // Verify SHA-256 if provided
   if (expectedSha256 && expectedSha256.length > 0) {
     const actual = await sha256Hex(buffer);
     if (actual !== expectedSha256) {
@@ -82,24 +78,25 @@ export async function loadModel(
     }
   }
 
-  // Store in cache
   const responseToCache = new Response(buffer, {
     headers: { 'Content-Type': 'application/octet-stream' },
   });
-  await cache.put(url, responseToCache);
+  await cache.put(resolvedUrl, responseToCache);
 
   return buffer;
 }
 
 /** Check whether a model is already cached */
 export async function isModelCached(url: string): Promise<boolean> {
+  const resolvedUrl = resolveUrl(url);
   const cache = await caches.open(MODEL_CACHE_NAME);
-  const cached = await cache.match(url);
+  const cached = await cache.match(resolvedUrl);
   return cached !== null && cached !== undefined;
 }
 
 /** Evict a specific model from cache */
 export async function evictModel(url: string): Promise<boolean> {
+  const resolvedUrl = resolveUrl(url);
   const cache = await caches.open(MODEL_CACHE_NAME);
-  return cache.delete(url);
+  return cache.delete(resolvedUrl);
 }

@@ -1,8 +1,10 @@
 export interface ModelMeta {
   id: string;
   name: string;
-  /** HuggingFace / remote URL for the ONNX file */
+  /** Local path relative to public/ (e.g. models/realesrgan-x4plus.onnx) */
   url: string;
+  /** Remote download URL */
+  downloadUrl: string;
   sizeBytes: number;
   sha256: string;
   /** Expected input tensor shape [N, C, H, W] */
@@ -18,10 +20,11 @@ const MODELS: ModelMeta[] = [
   {
     id: 'realesrgan-x4plus',
     name: 'Real-ESRGAN x4plus',
-    url: 'https://huggingface.co/onnx-community/real-esrgan-x4plus/resolve/main/model.onnx',
-    sizeBytes: 67_108_864,
-    sha256: '', // TODO: fill after downloading
-    inputShape: [1, 3, 256, 256],
+    url: 'models/realesrgan-x4plus.onnx',
+    downloadUrl: 'https://www.erudit23.ru/models/realesrgan-x4plus.onnx',
+    sizeBytes: 89_128_960,
+    sha256: '',
+    inputShape: [1, 3, 64, 64],
     license: 'BSD-3-Clause',
     descriptionKey: 'models.realesrgan-x4plus',
     pipeline: 'upscale',
@@ -30,10 +33,11 @@ const MODELS: ModelMeta[] = [
   {
     id: 'realesrgan-x4plus-anime',
     name: 'Real-ESRGAN x4plus Anime',
-    url: 'https://huggingface.co/onnx-community/real-esrgan-x4plus-anime/resolve/main/model.onnx',
-    sizeBytes: 67_108_864,
+    url: 'models/realesrgan-x4plus-anime.onnx',
+    downloadUrl: 'https://www.erudit23.ru/models/realesrgan-x4plus-anime.onnx',
+    sizeBytes: 89_128_960,
     sha256: '',
-    inputShape: [1, 3, 256, 256],
+    inputShape: [1, 3, 64, 64],
     license: 'BSD-3-Clause',
     descriptionKey: 'models.realesrgan-x4plus-anime',
     pipeline: 'upscale',
@@ -42,7 +46,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'gfpgan-v1.4',
     name: 'GFPGAN v1.4',
-    url: 'https://huggingface.co/onnx-community/gfpgan-v1.4/resolve/main/model.onnx',
+    url: 'models/gfpgan-v1.4.onnx',
+    downloadUrl: 'https://www.erudit23.ru/models/gfpgan-v1.4.onnx',
     sizeBytes: 348_000_000,
     sha256: '',
     inputShape: [1, 3, 512, 512],
@@ -54,7 +59,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'codeformer',
     name: 'CodeFormer',
-    url: 'https://huggingface.co/onnx-community/codeformer/resolve/main/model.onnx',
+    url: 'models/codeformer.onnx',
+    downloadUrl: 'https://www.erudit23.ru/models/codeformer.onnx',
     sizeBytes: 375_000_000,
     sha256: '',
     inputShape: [1, 3, 512, 512],
@@ -66,7 +72,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'lama',
     name: 'LaMa',
-    url: 'https://huggingface.co/onnx-community/lama/resolve/main/model.onnx',
+    url: 'models/lama.onnx',
+    downloadUrl: 'https://www.erudit23.ru/models/lama.onnx',
     sizeBytes: 210_000_000,
     sha256: '',
     inputShape: [1, 4, 512, 512],
@@ -78,7 +85,8 @@ const MODELS: ModelMeta[] = [
   {
     id: 'scunet',
     name: 'SCUNet',
-    url: 'https://huggingface.co/onnx-community/scunet/resolve/main/model.onnx',
+    url: 'models/scunet.onnx',
+    downloadUrl: 'https://www.erudit23.ru/models/scunet.onnx',
     sizeBytes: 150_000_000,
     sha256: '',
     inputShape: [1, 3, 256, 256],

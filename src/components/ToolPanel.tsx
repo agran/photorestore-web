@@ -30,8 +30,9 @@ export default function ToolPanel() {
 
     try {
       await runPipeline(key, options);
-    } catch {
-      toast({ title: t('errors.loadFailed'), variant: 'destructive' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      toast({ title: t('errors.pipelineFailed'), description: message, variant: 'destructive' });
     }
   };
 

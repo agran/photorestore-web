@@ -1,5 +1,6 @@
 import { useEditorStore } from '@/store/editorStore';
-import { upscale, type UpscaleOptions } from '@/ml/pipelines/upscale';
+import { useSettingsStore } from '@/store/settingsStore';
+import { upscale, type UpscaleOptions, isModelCached } from '@/ml/pipelines/upscale';
 import { faceRestore, type FaceRestoreOptions } from '@/ml/pipelines/faceRestore';
 import { inpaint, type InpaintOptions } from '@/ml/pipelines/inpaint';
 import { denoise, type DenoiseOptions } from '@/ml/pipelines/denoise';
@@ -34,7 +35,7 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
-export function createDefaultMask(width: number, height: number): HTMLCanvasElement {
+function createDefaultMask(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
   canvas.height = height;
@@ -44,8 +45,13 @@ export function createDefaultMask(width: number, height: number): HTMLCanvasElem
   return canvas;
 }
 
+function reportProgress(percent: number) {
+  useEditorStore.getState().updateJobProgress(Math.min(Math.round(percent), 99));
+}
+
 export async function runPipeline(type: PipelineType, options?: PipelineOptions): Promise<void> {
   const store = useEditorStore.getState();
+  const settings = useSettingsStore.getState();
   const imageUrl = store.currentImageUrl;
   if (!imageUrl) return;
 
@@ -58,9 +64,16 @@ export async function runPipeline(type: PipelineType, options?: PipelineOptions)
     let result: { canvas: HTMLCanvasElement };
 
     switch (type) {
-      case 'upscale':
-        result = await upscale(canvas, options as UpscaleOptions);
+      case 'upscale': {
+        const upsOpts = options as UpscaleOptions;
+        result = await upscale(canvas, {
+          ...upsOpts,
+          tileSize: upsOpts?.tileSize ?? settings.tileSize,
+          tileOverlap: upsOpts?.tileOverlap ?? settings.tileOverlap,
+          onProgress: reportProgress,
+        });
         break;
+      }
       case 'faceRestore':
         result = await faceRestore(canvas, options as FaceRestoreOptions);
         break;
@@ -86,12 +99,16 @@ export async function runPipeline(type: PipelineType, options?: PipelineOptions)
     store.pushHistory({ imageUrl: resultUrl, label: type });
     store.setJob({ id: jobId, pipeline: type, status: 'done', progress: 100 });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     store.setJob({
       id: jobId,
       pipeline: type,
       status: 'error',
       progress: 0,
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     });
+    throw err;
   }
 }
+
+export { isModelCached, createDefaultMask };

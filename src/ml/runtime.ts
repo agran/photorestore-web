@@ -4,11 +4,10 @@ export type BackendType = 'webgpu' | 'wasm';
 
 /** Detect the best available compute backend */
 export async function detectBackend(): Promise<BackendType> {
-  if ('gpu' in navigator) {
+  const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+  if (gpu) {
     try {
-      const gpu = (navigator as unknown as { gpu?: { requestAdapter: () => Promise<unknown> } })
-        .gpu;
-      const adapter = await gpu?.requestAdapter();
+      const adapter = await gpu.requestAdapter();
       if (adapter) return 'webgpu';
     } catch {
       // fall through
