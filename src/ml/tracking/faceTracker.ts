@@ -2,17 +2,13 @@ import type { FaceBox } from '@/ml/utils/faceDetect';
 
 export interface TrackedFace extends FaceBox {
   trackId: number;
-  /** Smoothed bbox after temporal EMA */
   smoothX: number;
   smoothY: number;
   smoothWidth: number;
   smoothHeight: number;
-  /** Kalman velocity */
   dx: number;
   dy: number;
-  /** Kalman covariance (higher = less confident) */
   covariance: number;
-  /** Frames since last matched detection */
   framesSinceUpdate: number;
 }
 
@@ -23,63 +19,53 @@ interface KalmanState {
   h: number;
   dx: number;
   dy: number;
-  /** Error covariance diagonal */
   p: number;
 }
 
-/**
- * Compute IoU between two face boxes
- */
+// IoU between two face boxes
 function iou(a: FaceBox, b: FaceBox): number {
-  const ax1 = a.x;
-  const ay1 = a.y;
-  const ax2 = a.x + a.width;
-  const ay2 = a.y + a.height;
-  const bx1 = b.x;
-  const by1 = b.y;
-  const bx2 = b.x + b.width;
-  const by2 = b.y + b.height;
-
-  const interX1 = Math.max(ax1, bx1);
-  const interY1 = Math.max(ay1, by1);
-  const interX2 = Math.min(ax2, bx2);
-  const interY2 = Math.min(ay2, by2);
-
+  const ax1 = a.x; const ay1 = a.y; const ax2 = a.x + a.width; const ay2 = a.y + a.height;
+  const bx1 = b.x; const by1 = b.y; const bx2 = b.x + b.width; const by2 = b.y + b.height;
+  const interX1 = Math.max(ax1, bx1); const interY1 = Math.max(ay1, by1);
+  const interX2 = Math.min(ax2, bx2); const interY2 = Math.min(ay2, by2);
   if (interX2 <= interX1 || interY2 <= interY1) return 0;
-
   const interArea = (interX2 - interX1) * (interY2 - interY1);
-  const areaA = a.width * a.height;
-  const areaB = b.width * b.height;
-
+  const areaA = a.width * a.height; const areaB = b.width * b.height;
   return interArea / (areaA + areaB - interArea);
 }
 
-/**
- * Greedy IoU matching. Pairs detections to tracks by highest IoU.
- */
-function matchByIoU(
+// Cost for matching: 1 - IoU for overlapping, center-distance for separated
+function matchingCost(a: FaceBox, b: FaceBox): number {
+  const iouVal = iou(a, b);
+  if (iouVal > 0.01) return 1 - iouVal;
+
+  const aCx = a.x + a.width / 2; const aCy = a.y + a.height / 2;
+  const bCx = b.x + b.width / 2; const bCy = b.y + b.height / 2;
+  const dist = Math.sqrt((aCx - bCx) ** 2 + (aCy - bCy) ** 2);
+  const diag = Math.sqrt(Math.max(a.width, b.width) ** 2 + Math.max(a.height, b.height) ** 2);
+  return 1 + dist / diag; // > 1 when disjoint
+}
+
+// Greedy matching by DIoU cost (lower is better)
+function matchByCost(
   tracks: KalmanState[],
   detections: FaceBox[],
-  iouThreshold: number,
+  maxCost: number,
 ): { matched: Array<{ trackIdx: number; detIdx: number }>; unmatchedTracks: number[]; unmatchedDets: number[] } {
   const matched: Array<{ trackIdx: number; detIdx: number }> = [];
   const usedTracks = new Set<number>();
   const usedDets = new Set<number>();
 
-  // Build all valid pairs
-  const pairs: Array<{ t: number; d: number; iou: number }> = [];
+  const pairs: Array<{ t: number; d: number; cost: number }> = [];
   for (let t = 0; t < tracks.length; t++) {
     for (let d = 0; d < detections.length; d++) {
       const trackBox: FaceBox = { x: tracks[t].x, y: tracks[t].y, width: tracks[t].w, height: tracks[t].h, confidence: 0 };
-      const iouScore = iou(trackBox, detections[d]);
-      if (iouScore >= iouThreshold) {
-        pairs.push({ t, d, iou: iouScore });
-      }
+      const cost = matchingCost(trackBox, detections[d]);
+      if (cost <= maxCost) pairs.push({ t, d, cost });
     }
   }
 
-  // Sort by IoU descending
-  pairs.sort((a, b) => b.iou - a.iou);
+  pairs.sort((a, b) => a.cost - b.cost);
 
   for (const { t, d } of pairs) {
     if (usedTracks.has(t) || usedDets.has(d)) continue;
@@ -90,242 +76,184 @@ function matchByIoU(
 
   const unmatchedTracks: number[] = [];
   const unmatchedDets: number[] = [];
-
-  for (let t = 0; t < tracks.length; t++) {
-    if (!usedTracks.has(t)) unmatchedTracks.push(t);
-  }
-  for (let d = 0; d < detections.length; d++) {
-    if (!usedDets.has(d)) unmatchedDets.push(d);
-  }
+  for (let t = 0; t < tracks.length; t++) if (!usedTracks.has(t)) unmatchedTracks.push(t);
+  for (let d = 0; d < detections.length; d++) if (!usedDets.has(d)) unmatchedDets.push(d);
 
   return { matched, unmatchedTracks, unmatchedDets };
 }
 
-// Kalman filter constants
-const PROCESS_NOISE = 0.01; // how much we trust motion model (lower = smoother)
-const MEASUREMENT_NOISE = 0.1; // how much we trust detections (lower = snappier)
+const PROCESS_NOISE = 0.01;
+const MEASUREMENT_NOISE = 0.1;
+const VEL_DECAY = 0.98; // velocity fade on predict
+const ALPHA_VEL = 0.6; // EMA for velocity smoothing
 
-function kalmanPredict(state: KalmanState): KalmanState {
-  // Update covariance
-  const pNew = state.p + PROCESS_NOISE * 0.1;
+function kalmanPredict(state: KalmanState, dt = 1): KalmanState {
   return {
-    x: state.x + state.dx,
-    y: state.y + state.dy,
+    x: state.x + state.dx * dt,
+    y: state.y + state.dy * dt,
     w: state.w,
     h: state.h,
-    dx: state.dx,
-    dy: state.dy,
-    p: pNew,
+    dx: state.dx * VEL_DECAY,
+    dy: state.dy * VEL_DECAY,
+    p: state.p + PROCESS_NOISE * dt * dt, // quadratic growth with time
   };
 }
 
-function kalmanUpdate(state: KalmanState, detection: FaceBox): KalmanState {
+// FIXED: velocity = (newPos - posBeforePrediction) / dt with EMA
+function kalmanUpdate(state: KalmanState, detection: FaceBox, dt = 1): KalmanState {
   const k = state.p / (state.p + MEASUREMENT_NOISE);
   const newX = state.x + k * (detection.x - state.x);
   const newY = state.y + k * (detection.y - state.y);
   const newW = state.w + k * (detection.width - state.w);
   const newH = state.h + k * (detection.height - state.h);
-  const newDx = newX - state.x;
-  const newDy = newY - state.y;
-  const newP = (1 - k) * state.p;
+
+  // instantaneous velocity from pre-prediction position
+  const prevX = state.x - state.dx;
+  const prevY = state.y - state.dy;
+  const instDx = (newX - prevX) / dt;
+  const instDy = (newY - prevY) / dt;
+
+  // EMA-smooth velocity
+  const newDx = state.dx * (1 - ALPHA_VEL) + instDx * ALPHA_VEL;
+  const newDy = state.dy * (1 - ALPHA_VEL) + instDy * ALPHA_VEL;
 
   return {
-    x: newX,
-    y: newY,
-    w: newW,
-    h: newH,
-    dx: newDx,
-    dy: newDy,
-    p: Math.max(newP, 0.001),
+    x: newX, y: newY, w: newW, h: newH,
+    dx: newDx, dy: newDy,
+    p: Math.max((1 - k) * state.p, 0.001),
   };
 }
 
-/**
- * ByteTrack face tracker — two-stage association, Kalman prediction.
- *
- * Tracks faces across video frames:
- * 1. Predict all tracks forward (Kalman)
- * 2. Match high-confidence detections to tracks (IoU)
- * 3. Match remaining low-confidence detections to remaining tracks
- * 4. Create new tracks for unmatched high-confidence detections
- * 5. Delete lost tracks after TTL
- */
 export class FaceTracker {
   private tracks: KalmanState[] = [];
   private trackIds: number[] = [];
   private nextId = 1;
   private lostCounts: number[] = [];
-  private maxLost = 30; // frames before track deletion (must be > max detection interval)
-  private iouHigh = 0.4; // IoU threshold for high-confidence
-  private iouLow = 0.2; // IoU threshold for low-confidence
-  
-  /** EMA smoothing factor (0 = no smoothing, 1 = frozen) */
+  private maxLost = 30;
+  // Cost thresholds for matching (1 - IoU + center-distance)
+  private costHigh = 0.65; // ≈ IoU > 0.35
+  private costRescue = 1.1; // ≈ IoU > 0.1 + center distance rescue
+  private costLow = 1.5; // very loose for low-conf dets
+
   private ema = 0.5;
-  /** Smoothed bbox history per track */
+  private emaPredict = 0.35; // less trust of raw prediction (more inertia)
   private smoothBoxes: Array<{ x: number; y: number; w: number; h: number } | null> = [];
 
-  /**
-   * Update tracker with new detections.
-   * @param detections — all face boxes from current frame
-   * @param confThreshold — threshold for high-confidence detections
-   * @param frameW — canvas width (for clamping)
-   * @param frameH — canvas height
-   * @returns smoothed face boxes with track IDs
-   */
   update(detections: FaceBox[], _confThreshold = 0.5, frameW = 1, frameH = 1): TrackedFace[] {
-    // Split detections into high and low confidence
+    // Split detections
     const highDets = detections.filter((d) => d.confidence >= 0.5);
     const lowDets = detections.filter((d) => d.confidence < 0.5 && d.confidence >= 0.2);
 
     // Predict all tracks forward
     const predicted = this.tracks.map((t) => kalmanPredict(t));
 
-    // Stage 1: Match high-confidence detections
-    const stage1 = matchByIoU(predicted, highDets, this.iouHigh);
-
-    // Update matched tracks
+    // Stage 1: high-confidence at strict cost
+    const stage1 = matchByCost(predicted, highDets, this.costHigh);
     const updated = [...predicted];
-    const matchedTrackIndices = new Set<number>();
+    const matchedSet = new Set<number>();
 
     for (const { trackIdx, detIdx } of stage1.matched) {
       updated[trackIdx] = kalmanUpdate(predicted[trackIdx], highDets[detIdx]);
-      matchedTrackIndices.add(trackIdx);
+      matchedSet.add(trackIdx);
       this.lostCounts[trackIdx] = 0;
     }
 
-    // Stage 2: Match low-confidence detections to remaining tracks
-    const unmatchedTrackIndices = stage1.unmatchedTracks.filter((t) => !matchedTrackIndices.has(t));
-    const stage2 = matchByIoU(
-      unmatchedTrackIndices.map((t) => updated[t]),
-      lowDets,
-      this.iouLow,
-    );
+    // Stage 1.5: rescue remaining high-conf dets with looser cost
+    const unmatchedTracksStage1 = stage1.unmatchedTracks.filter((t) => !matchedSet.has(t));
+    const unmatchedHighDets = stage1.unmatchedDets;
+    const usedHighDets = new Set<number>();
 
-    for (const { trackIdx: localIdx, detIdx } of stage2.matched) {
-      const globalIdx = unmatchedTrackIndices[localIdx];
-      updated[globalIdx] = kalmanUpdate(updated[globalIdx], lowDets[detIdx]);
-      this.lostCounts[globalIdx] = 0;
+    if (unmatchedTracksStage1.length > 0 && unmatchedHighDets.length > 0) {
+      const rescueTracks = unmatchedTracksStage1.map((t) => updated[t]);
+      const rescueDets = unmatchedHighDets.map((d) => highDets[d]);
+      const stage15 = matchByCost(rescueTracks, rescueDets, this.costRescue);
+
+      for (const { trackIdx: localIdx, detIdx: localDetIdx } of stage15.matched) {
+        const globalT = unmatchedTracksStage1[localIdx];
+        const globalD = unmatchedHighDets[localDetIdx];
+        updated[globalT] = kalmanUpdate(updated[globalT], highDets[globalD]);
+        matchedSet.add(globalT);
+        this.lostCounts[globalT] = 0;
+        usedHighDets.add(localDetIdx);
+      }
     }
 
-    // Increment lost counters for unmatched tracks
-    const allMatched = new Set<number>();
-    for (const { trackIdx } of stage1.matched) allMatched.add(trackIdx);
-    for (const { trackIdx: localIdx } of stage2.matched) allMatched.add(unmatchedTrackIndices[localIdx]);
+    // Stage 2: low-conf dets to remaining tracks
+    const unmatchedTrackIndicesAll = stage1.unmatchedTracks.filter((t) => !matchedSet.has(t));
+    if (unmatchedTrackIndicesAll.length > 0 && lowDets.length > 0) {
+      const remainingTracks = unmatchedTrackIndicesAll.map((t) => updated[t]);
+      const stage2 = matchByCost(remainingTracks, lowDets, this.costLow);
 
+      for (const { trackIdx: localIdx, detIdx } of stage2.matched) {
+        const globalIdx = unmatchedTrackIndicesAll[localIdx];
+        updated[globalIdx] = kalmanUpdate(updated[globalIdx], lowDets[detIdx]);
+        matchedSet.add(globalIdx);
+        this.lostCounts[globalIdx] = 0;
+      }
+    }
+
+    // Increment lost counters only for tracks that weren't matched
     for (let i = 0; i < this.tracks.length; i++) {
-      if (!allMatched.has(i)) {
+      if (!matchedSet.has(i)) {
         this.lostCounts[i] = (this.lostCounts[i] || 0) + 1;
       }
     }
 
-    // Create new tracks for unmatched high-confidence detections
-    const unmatchedHighDetIndices = new Set(stage1.unmatchedDets);
-    for (const detIdx of unmatchedHighDetIndices) {
+    // Create new tracks from truly unmatched high-conf detections (not rescued)
+    const remainingHighDets = unmatchedHighDets.filter((_, idx) => !usedHighDets.has(idx));
+    for (const detIdx of remainingHighDets) {
       const d = highDets[detIdx];
-      const state: KalmanState = {
-        x: d.x,
-        y: d.y,
-        w: d.width,
-        h: d.height,
-        dx: 0,
-        dy: 0,
-        p: 0.1,
-      };
-      updated.push(state);
+      updated.push({ x: d.x, y: d.y, w: d.width, h: d.height, dx: 0, dy: 0, p: 0.1 });
       this.trackIds.push(this.nextId++);
       this.lostCounts.push(0);
-      this.smoothBoxes.push(null);
+      // FIX: init smoothBoxes with detection box, not null
+      this.smoothBoxes.push({ x: d.x, y: d.y, w: d.width, h: d.height });
     }
 
-    // Delete tracks that exceed maxLost
+    // Delete tracks exceeding maxLost
     const keepMask = this.lostCounts.map((c) => c <= this.maxLost);
     this.tracks = updated.filter((_, i) => keepMask[i]);
     this.trackIds = this.trackIds.filter((_, i) => keepMask[i]);
     this.lostCounts = this.lostCounts.filter((_, i) => keepMask[i]);
     this.smoothBoxes = this.smoothBoxes.filter((_, i) => keepMask[i]);
 
-    // Apply EMA smoothing to bbox corners and clamp to frame
+    return this.buildResults(keepMask, updated, frameW, frameH, this.ema);
+  }
+
+  /**
+   * Handle empty detections (detector ran but found nothing).
+   * Predict forward WITHOUT incrementing lostCounts — treat as missing keyframe.
+   */
+  predictEmptyKeyframe(frameW = 1, frameH = 1): TrackedFace[] {
+    return this.predict(frameW, frameH);
+  }
+
+  predict(frameW = 1, frameH = 1): TrackedFace[] {
+    this.tracks = this.tracks.map((t) => kalmanPredict(t));
+    return this.buildResults(this.tracks.map(() => true), this.tracks, frameW, frameH, this.emaPredict);
+  }
+
+  private buildResults(
+    keepMask: boolean[],
+    states: KalmanState[],
+    frameW: number,
+    frameH: number,
+    ema: number,
+  ): TrackedFace[] {
     const results: TrackedFace[] = [];
-    const currentTracks = keepMask.map((k, i) => (k ? updated[i] : null)).filter((t): t is KalmanState => t !== null);
-    const currentIds = this.trackIds;
+    const currentTracks = keepMask.map((k, i) => (k ? states[i] : null)).filter((t): t is KalmanState => t !== null);
 
     for (let i = 0; i < currentTracks.length; i++) {
       const t = currentTracks[i];
       const raw = { x: t.x, y: t.y, w: t.w, h: t.h };
 
-      // EMA smoothing
       let smooth: { x: number; y: number; w: number; h: number };
       if (this.smoothBoxes[i]) {
         smooth = {
-          x: this.smoothBoxes[i]!.x * (1 - this.ema) + raw.x * this.ema,
-          y: this.smoothBoxes[i]!.y * (1 - this.ema) + raw.y * this.ema,
-          w: this.smoothBoxes[i]!.w * (1 - this.ema) + raw.w * this.ema,
-          h: this.smoothBoxes[i]!.h * (1 - this.ema) + raw.h * this.ema,
-        };
-      } else {
-        smooth = raw;
-      }
-
-      // Clamp to frame
-      smooth.x = Math.max(0, Math.min(smooth.x, frameW - 1));
-      smooth.y = Math.max(0, Math.min(smooth.y, frameH - 1));
-      smooth.w = Math.max(8, Math.min(smooth.w, frameW - smooth.x));
-      smooth.h = Math.max(8, Math.min(smooth.h, frameH - smooth.y));
-
-      this.smoothBoxes[i] = smooth;
-
-      results.push({
-        trackId: currentIds[i],
-        x: t.x,
-        y: t.y,
-        width: t.w,
-        height: t.h,
-        confidence: 0,
-        smoothX: smooth.x,
-        smoothY: smooth.y,
-        smoothWidth: smooth.w,
-        smoothHeight: smooth.h,
-        dx: t.dx,
-        dy: t.dy,
-        covariance: t.p,
-        framesSinceUpdate: this.lostCounts[i] || 0,
-      });
-    }
-
-    return results;
-  }
-
-  /** Reset tracker (new video) */
-  reset(): void {
-    this.tracks = [];
-    this.trackIds = [];
-    this.lostCounts = [];
-    this.smoothBoxes = [];
-    this.nextId = 1;
-  }
-
-  /**
-   * Predict tracks forward without detections. Does NOT increment lostCounts.
-   * Use between keyframes to keep tracks alive without counting them as lost.
-   */
-  predict(frameW = 1, frameH = 1): TrackedFace[] {
-    // Predict all tracks forward
-    const predicted = this.tracks.map((t) => kalmanPredict(t));
-    this.tracks = predicted;
-
-    // Apply EMA smoothing
-    const results: TrackedFace[] = [];
-    for (let i = 0; i < this.tracks.length; i++) {
-      const t = this.tracks[i];
-      const raw = { x: t.x, y: t.y, w: t.w, h: t.h };
-
-      let smooth: { x: number; y: number; w: number; h: number };
-      if (this.smoothBoxes[i]) {
-        smooth = {
-          x: this.smoothBoxes[i]!.x * (1 - this.ema) + raw.x * this.ema,
-          y: this.smoothBoxes[i]!.y * (1 - this.ema) + raw.y * this.ema,
-          w: this.smoothBoxes[i]!.w * (1 - this.ema) + raw.w * this.ema,
-          h: this.smoothBoxes[i]!.h * (1 - this.ema) + raw.h * this.ema,
+          x: this.smoothBoxes[i]!.x * (1 - ema) + raw.x * ema,
+          y: this.smoothBoxes[i]!.y * (1 - ema) + raw.y * ema,
+          w: this.smoothBoxes[i]!.w * (1 - ema) + raw.w * ema,
+          h: this.smoothBoxes[i]!.h * (1 - ema) + raw.h * ema,
         };
       } else {
         smooth = raw;
@@ -348,11 +276,17 @@ export class FaceTracker {
         framesSinceUpdate: this.lostCounts[i] || 0,
       });
     }
-
     return results;
   }
 
-  /** Check if all tracks are confident (low covariance) */
+  reset(): void {
+    this.tracks = [];
+    this.trackIds = [];
+    this.lostCounts = [];
+    this.smoothBoxes = [];
+    this.nextId = 1;
+  }
+
   isConfident(): boolean {
     return this.tracks.every((t) => t.p < 0.05) && this.tracks.length > 0;
   }

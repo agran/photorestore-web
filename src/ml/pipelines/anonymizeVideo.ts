@@ -211,7 +211,9 @@ async function anonymizeVideoV2(
         detectCanvas.height = cH;
         sample.draw(detectCanvas.getContext('2d')!, 0, 0, cW, cH);
         const detections = await detectFaces(detectCanvas, { modelId });
-        trackedFaces = tracker.update(detections, 0.5, cW, cH);
+        trackedFaces = detections.length > 0
+          ? tracker.update(detections, 0.5, cW, cH)
+          : tracker.predictEmptyKeyframe(cW, cH);
 
         if (resolvedOpts.effect === 'emoji') {
           for (const tf of trackedFaces) {
@@ -390,7 +392,9 @@ async function anonymizeVideoFallback(
       await seekToFrame(video, f);
       const frameCanvas = canvasFromVideo(video);
       const detections = await detectFaces(frameCanvas, { modelId });
-      trackedFaces = tracker.update(detections, 0.5, cW, cH);
+      trackedFaces = detections.length > 0
+        ? tracker.update(detections, 0.5, cW, cH)
+        : tracker.predictEmptyKeyframe(cW, cH);
 
       if (resolvedOpts.effect === 'emoji') {
         for (const tf of trackedFaces) {
