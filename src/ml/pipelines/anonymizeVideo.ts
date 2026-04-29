@@ -13,7 +13,8 @@ import {
   Input, Output, Mp4OutputFormat, BufferTarget,
   ALL_FORMATS, BlobSource,
   VideoSampleSink, EncodedPacketSink,
-  CanvasSource, EncodedAudioPacketSource,
+  EncodedVideoPacketSource, EncodedAudioPacketSource,
+  EncodedPacket,
   type AudioCodec,
 } from 'mediabunny';
 
@@ -147,11 +148,8 @@ async function anonymizeVideoV2(
     target: new BufferTarget(),
   });
 
-  const canvasSource = new CanvasSource(processCanvas, {
-    codec: 'avc',
-    bitrate: 5_000_000,
-  });
-  output.addVideoTrack(canvasSource);
+  const videoSource = new EncodedVideoPacketSource('avc');
+  output.addVideoTrack(videoSource);
 
   let audioSource: EncodedAudioPacketSource | null = null;
   if (audioTrack) {
@@ -163,6 +161,38 @@ async function anonymizeVideoV2(
   }
 
   await output.start();
+
+  // Get video decoder config for metadata
+  const videoDecoderConfig = await videoTrack.getDecoderConfig();
+
+  // Manual VideoEncoder with backpressure handling
+  const encodedChunks: Array<{ chunk: EncodedVideoChunk; key: boolean }> = [];
+  let encoderError: unknown = null;
+
+  const encoder = new VideoEncoder({
+    output: (chunk) => {
+      encodedChunks.push({ chunk, key: chunk.type === 'key' });
+    },
+    error: (err) => {
+      console.error('VideoEncoder error:', err);
+      encoderError = err;
+    },
+  });
+
+  const h264Config: VideoEncoderConfig = {
+    codec: 'avc1.420028',
+    width: cW,
+    height: cH,
+    bitrate: 5_000_000,
+  };
+
+  const configSupported = await VideoEncoder.isConfigSupported(h264Config);
+  encoder.configure(configSupported ? h264Config : {
+    codec: 'vp09.00.10.08',
+    width: cW,
+    height: cH,
+    bitrate: 5_000_000,
+  });
 
   // 3. Stream video frames (in parallel with audio if desired)
   const videoSink = new VideoSampleSink(videoTrack);
@@ -226,8 +256,21 @@ async function anonymizeVideoV2(
         }
       }
 
-      // CanvasSource encodes and adds the current canvas state
-      await canvasSource.add(sample.timestamp, sample.duration || 1 / 30);
+      // Encode frame
+      const tsUs = Math.round(sample.timestamp * 1_000_000);
+      const durUs = Math.round(sample.duration * 1_000_000) || 33_333;
+      try {
+        const videoFrame = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
+        encoder.encode(videoFrame);
+        videoFrame.close();
+      } catch (e) {
+        console.error('Frame encode failed:', e);
+      }
+
+      if (encoderError) {
+        console.error('VideoEncoder failed:', encoderError);
+        throw new Error('VideoEncoder error');
+      }
 
       frameIndex++;
 
@@ -251,7 +294,26 @@ async function anonymizeVideoV2(
     sampleResult = await sampleIterator.next();
   }
 
-  canvasSource.close();
+  // Flush encoder and add encoded chunks to output
+  try { await encoder.flush(); } catch { /* ignore */ }
+  encoder.close();
+
+  let isFirstVideoPacket = true;
+  const videoMeta = videoDecoderConfig ? { decoderConfig: videoDecoderConfig } : undefined;
+  for (const { chunk } of encodedChunks) {
+    if (signal?.aborted) break;
+    const data = new Uint8Array(chunk.byteLength);
+    chunk.copyTo(data);
+    const pkt = new EncodedPacket(
+      data,
+      chunk.type === 'key' ? 'key' : 'delta',
+      chunk.timestamp,
+      chunk.duration ?? 33_333,
+    );
+    await videoSource.add(pkt, isFirstVideoPacket ? videoMeta : undefined);
+    isFirstVideoPacket = false;
+  }
+  videoSource.close();
 
   // 4. Audio passthrough (track already added to output before start)
   if (audioSource) {
