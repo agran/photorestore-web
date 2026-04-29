@@ -43,73 +43,112 @@
 > Extends the v0.6 Hide Faces pipeline to video. Same 4 effects,
 > same 5 detectors, but applied frame-by-frame with face tracking
 > and re-encoding into a video file.
+> **Entire pipeline runs in a WebWorker** — main thread handles only UI.
 
 ### Architecture
 
 ```
-MP4/WebM → Canvas decode → Frame → Detect (keyframes) → Track (Kalman+IoU)
-                                   → [YOLO-pose body anchor]
-                                   → Apply effect → Encode → Output video
+MP4/WebM → MP4Box demux → WebCodecs VideoDecoder → VideoFrame
+  → Detect (keyframes) → ByteTrack → Apply effect → WebCodecs VideoEncoder
+  → mp4-muxer remux → Output MP4/WebM (with audio passthrough)
 ```
+
+Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `OffscreenCanvas` for rendering, no `getImageData()` in the hot path.
 
 | Layer | Module | Purpose |
 |-------|--------|---------|
-| Input | `VideoAnonymizeWizard.tsx` | Video upload, frame preview, effect settings, progress |
-| Decode | `videoDecoder.ts` | `<video>` → Canvas → `ImageData` per frame |
-| Detect | reuse `anonymize.ts` pipeline | Full detection every N keyframes |
-| Track | `faceTracker.ts` | Kalman filter + IoU matching for in-between frames |
-| Pose | `poseDetector.ts` (yolo26m-pose) | Body keypoints anchor face position, reduce drift |
+| Demux | `MP4Box.js` | Split MP4 into video + audio tracks (`EncodedVideoChunk`) |
+| Decode | `WebCodecs VideoDecoder` | GPU-accelerated frame-accurate decode → `VideoFrame` |
+| Detect | reuse `anonymize.ts` pipeline | Full detection on keyframes; BlazeFace cheap verifier on every frame |
+| Track | `faceTracker.ts` | ByteTrack (two-stage IoU matching) + adaptive keyframe interval |
+| Re-ID | `faceReid.ts` (ArcFace ONNX) | Re-identify faces after long occlusions (v0.7.4, optional) |
+| Pose | `poseDetector.ts` (yolo26m-pose) | Body keypoints anchor face position (v0.7.5, optional) |
 | Effect | reuse `anonymizeEffects.ts` | Blur / Pixelate / Solid / Emoji per-face per-frame |
-| Encode | `videoEncoder.ts` | WebCodecs (preferred) or ffmpeg.wasm → MP4/WebM |
+| Encode | `WebCodecs VideoEncoder` | H.264 baseline primary, VP9 optional. `isConfigSupported()` for capability |
+| Mux | `mp4-muxer` | Combine encoded video + audio passthrough → MP4/WebM |
+| Audio | `AudioEncoder` (if re-encode needed) | Remux original audio without re-encode when container matches |
 | State | `videoAnonymizeStore.ts` | Per-frame face boxes, track IDs, processing progress |
+| Worker | `videoWorker.ts` | Entire pipeline (decode→track→effect→encode), `postMessage` + transferable `VideoFrame` |
 
-### Face Tracking (v0.7.1)
+### Why not `<video>` + Canvas for decode
 
-- **Keyframe interval**: full detection every 10–15 frames
-- **Kalman filter**: 4-state (x, y, dx, dy) per face, constant velocity model
-- **IoU matching**: greedy Hungarian association between predicted and detected boxes
-- **Drift recovery**: re-detect when IoU < 0.3 for 3 consecutive frames
-- **New face detection**: any unmatched detection → spawn tracker
-
-### YOLO Pose Integration (v0.7.2)
-
-- Model: `yolo26m-pose.onnx` (~26 MB, 17 COCO keypoints)
-- Each person gets bbox + keypoints (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles)
-- Face bbox anchored to body via nose+eyes → body bbox; stabilizes during occlusion/turning
-- Only runs on keyframes (every 10–15 frames, same schedule as detection)
-- Optional: skip face detector entirely, use nose+eyes as face proxy (faster but less accurate)
+- `<video>.currentTime` is async, imprecise (snaps to nearest keyframe), drops frames on long videos
+- `requestVideoFrameCallback` can't decode faster than real-time — 30s video takes ≥30s
+- `drawImage(video) → getImageData()` forces GPU→CPU readback, massive bottleneck
+- **Fix:** WebCodecs `VideoDecoder` — frame-accurate, faster than real-time, GPU-native
 
 ### Encoding Strategy
 
 | Method | Pros | Cons |
 |--------|------|------|
-| **WebCodecs** | GPU-accelerated, no WASM | Chrome/Edge only, no Firefox |
-| **ffmpeg.wasm** | Cross-browser, mature | 30+ MB WASM, CPU-only, slow |
-| **Hybrid** | WebCodecs if available, fallback to ffmpeg.wasm | Extra build complexity |
+| **WebCodecs H.264** | GPU-accelerated, universal (Chrome/Edge/Safari) | Firefox limited support |
+| **WebCodecs VP9** | Open codec, good compression | Not everywhere for encode |
+| **ffmpeg.wasm** | Cross-browser fallback | 30+ MB WASM, CPU-only, <2% users |
 
-Choice: WebCodecs first (target Chrome/Edge, 93% of users), ffmpeg.wasm as fallback.
+- **Primary:** H.264 baseline via WebCodecs (Chrome, Edge, Safari 17+)
+- **Fallback:** ffmpeg.wasm for very old browsers (<2%)
+- **Detection:** `VideoEncoder.isConfigSupported({ codec: 'avc1.42001E' })` — not browser sniffing
+- **Container:** MP4 for H.264, WebM for VP9
+
+### Face Tracking — ByteTrack (v0.7.1)
+
+- **ByteTrack**: two-stage association — high-confidence detections matched first, then low-confidence detections matched to remaining tracks. Handles occlusions and crossing faces. ~200 lines, no ML.
+- **Keyframe interval**: adaptive — 15 frames when all tracks confident (Kalman covariance low), 5 frames when any track shaky
+- **Kalman filter**: 4-state (x, y, dx, dy) per face, constant velocity model, for prediction between keyframes
+- **Cheap verifier**: BlazeFace on every frame (<5ms), full detector (SCRFD/RetinaFace) only on keyframes for high recall
+- **Drift recovery**: re-detect when IoU < 0.3 for 3 consecutive frames
+- **New face**: unmatched high-conf detection → spawn tracker
+- **Forward-backward consistency**: at finalize, run tracking in both directions and average — drastically stabilizes bbox
+- **Temporal mask smoothing**: low-pass filter (EMA α≈0.5) on bbox corners before rasterize — eliminates "flickering halo" from feather + tracking jitter
+
+### Scale-Invariant Effects for Video
+
+- **Pixelate kernel / Blur radius**: tied to bbox size (`kernel = bbox.width * 0.1`), not fixed pixels — avoids visual "breathing" as face moves closer/further
+- **Feather**: proportional to bbox size, not absolute pixels
+- **Emoji font size**: `bbox.width * 0.6` — adapts to face size per frame
+
+### Audio Passthrough (v0.7.2)
+
+- **Demux:** `MP4Box.js` reads audio track as `EncodedAudioChunk` packets
+- **Remux:** `mp4-muxer` (npm, ~20KB) accepts `EncodedAudioChunk` directly — no re-encode
+- **Caveat:** container must match (MP4→MP4 for AAC, WebM→WebM for Opus/Vorbis). If crossing containers (MP4→WebM), re-encode audio via `AudioEncoder`
+- **No audio track?** Skip entirely, output video-only
+
+### Memory & Backpressure (built into pipeline from day 1)
+
+- **`VideoFrame.close()`** after every stage — unclosed frame on 1080p = ~8MB GPU memory leak
+- **Streaming pipeline:** decode → track → effect → encode — one frame in flight + small buffer, never accumulate all frames in arrays
+- **Encoder backpressure:** `encodeQueueSize` can grow faster than encoder processes; await `flush()` every N frames
+- **Tab throttling:** use `requestVideoFrameCallback` or worker-internal pump via `setTimeout(0)`, not `rAF` (stops in background)
+- **Cancel:** `worker.terminate()` — clean, immediate
 
 ### UI Flow
 
-1. Upload video → show first frame + duration/resolution info
-2. Detect faces on frame 0 → show overlay (reuse FaceOverlay)
+1. Upload video → first frame + duration/resolution/metadata
+2. Detect faces on frame 0 → overlay (reuse FaceOverlay)
 3. Configure effects (reuse AnonymizeWizard effect panel)
-4. "Process" → progress: current frame / total frames, ETA, cancel button
-5. "Download" → output video (WebM VP9, same resolution/fps as input)
-6. Before/After: side-by-side video players (or frame comparison for selected frame)
+4. "Process" → progress: frames done / total, ETA (EMA over last 30 frames), cancel
+5. Preview: render every N-th finished frame in `OffscreenCanvas` → post to main thread (not realtime)
+6. "Download" → output video (same resolution/fps as input, audio passthrough)
+7. Before/After: frame comparison or side-by-side video players
 
-### Milestones
+### Milestones (reordered after architecture review)
 
-- [ ] v0.7.0: Canvas decode → full detection per frame → WebCodecs/ffmpeg encode → download
-- [ ] v0.7.1: Kalman+IoU face tracking → keyframe detection → 10× speedup
-- [ ] v0.7.2: YOLO-pose body anchor → robust tracking through occlusion/turns
-- [ ] v0.7.3: UI — video preview scrubber, keyframe editor, ETA, cancel, audio passthrough
+- [ ] v0.7.0: WebCodecs decode/encode + per-frame detection + WebWorker pipeline (proof-of-concept, short clips <10s, no tracking)
+- [ ] v0.7.1: ByteTrack + adaptive keyframes + temporal mask smoothing + scale-invariant effects
+- [ ] v0.7.2: Audio passthrough (MP4Box + mp4-muxer), ETA, cancel, long video support
+- [ ] v0.7.3: UI — video scrubber, keyframe editor, preview during processing
+- [ ] v0.7.4: [optional] ArcFace re-ID for long occlusions (face descriptor ONNX)
+- [ ] v0.7.5: [optional, only if test failures warrant] YOLO-pose body anchor for 3/4 profile / turning cases
 
 ### Dependencies
 
-- `yolo26m-pose.onnx` → `src/ml/models/` + modelRegistry entry
-- `@ffmpeg/ffmpeg` or `@ffmpeg/util` (if WebCodecs unavailable)
-- No new runtime deps otherwise — Canvas API + existing ORT
+- `mp4box.js` — MP4 demuxing (npm, ~200KB)
+- `mp4-muxer` — MP4/WebM muxing with audio passthrough (npm, ~20KB)
+- `@ffmpeg/ffmpeg` / `@ffmpeg/util` — fallback encode for very old browsers
+- `yolo26m-pose.onnx` — only for v0.7.5, not a hard dependency
+- `arcface-mbn.onnx` — only for v0.7.4 re-ID
+- No other new runtime deps — Canvas API (`OffscreenCanvas`, `ImageBitmap`) + existing ORT
 
 ---
 
