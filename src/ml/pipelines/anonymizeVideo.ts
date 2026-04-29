@@ -142,13 +142,35 @@ async function anonymizeVideoV2(
   processCanvas.height = cH;
   const processCtx = processCanvas.getContext('2d')!;
 
-  // 2. Setup output — add ALL tracks before starting
+  // 2. Setup codec + encoder
+  const h264Config: VideoEncoderConfig = {
+    codec: 'avc1.420028',
+    width: cW,
+    height: cH,
+    bitrate: 5_000_000,
+  };
+  const configSupported = await VideoEncoder.isConfigSupported(h264Config);
+  const outputCodec = configSupported ? 'avc1.420028' : 'vp09.00.10.08';
+  const outputCodecType = configSupported ? 'avc' as const : 'vp9' as const;
+
+  const encodedChunks: EncodedVideoChunk[] = [];
+  let encoderError: unknown = null;
+
+  const encoder = new VideoEncoder({
+    output: (chunk) => { encodedChunks.push(chunk); },
+    error: (err) => { console.error('VideoEncoder error:', err); encoderError = err; },
+  });
+  encoder.configure(configSupported ? h264Config : {
+    codec: 'vp09.00.10.08', width: cW, height: cH, bitrate: 5_000_000,
+  });
+
+  // 3. Setup output
   const output = new Output({
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target: new BufferTarget(),
   });
 
-  const videoSource = new EncodedVideoPacketSource('avc');
+  const videoSource = new EncodedVideoPacketSource(outputCodecType);
   output.addVideoTrack(videoSource);
 
   let audioSource: EncodedAudioPacketSource | null = null;
@@ -162,39 +184,7 @@ async function anonymizeVideoV2(
 
   await output.start();
 
-  // Get video decoder config for metadata
-  const videoDecoderConfig = await videoTrack.getDecoderConfig();
-
-  // Manual VideoEncoder with backpressure handling
-  const encodedChunks: Array<{ chunk: EncodedVideoChunk; key: boolean }> = [];
-  let encoderError: unknown = null;
-
-  const encoder = new VideoEncoder({
-    output: (chunk) => {
-      encodedChunks.push({ chunk, key: chunk.type === 'key' });
-    },
-    error: (err) => {
-      console.error('VideoEncoder error:', err);
-      encoderError = err;
-    },
-  });
-
-  const h264Config: VideoEncoderConfig = {
-    codec: 'avc1.420028',
-    width: cW,
-    height: cH,
-    bitrate: 5_000_000,
-  };
-
-  const configSupported = await VideoEncoder.isConfigSupported(h264Config);
-  encoder.configure(configSupported ? h264Config : {
-    codec: 'vp09.00.10.08',
-    width: cW,
-    height: cH,
-    bitrate: 5_000_000,
-  });
-
-  // 3. Stream video frames (in parallel with audio if desired)
+  // 4. Stream video frames
   const videoSink = new VideoSampleSink(videoTrack);
   const tracker = new FaceTracker();
   let frameIndex = 0;
@@ -225,12 +215,9 @@ async function anonymizeVideoV2(
 
         if (resolvedOpts.effect === 'emoji') {
           for (const tf of trackedFaces) {
-            if (!trackEmojis.has(tf.trackId)) {
-              trackEmojis.set(tf.trackId, randomEmoji());
-            }
+            if (!trackEmojis.has(tf.trackId)) trackEmojis.set(tf.trackId, randomEmoji());
           }
         }
-
         if (tracker.isConfident() && trackedFaces.length > 0) {
           detectionIntervalAdaptive = Math.min(maxInterval, detectionIntervalAdaptive + 5);
         } else {
@@ -241,13 +228,13 @@ async function anonymizeVideoV2(
         trackedFaces = tracker.predict(cW, cH);
       }
 
+      sample.draw(processCtx, 0, 0, cW, cH);
+
       if (trackedFaces.length > 0) {
         const frameCopy = canvasFromCanvas(processCanvas);
         for (let i = 0; i < trackedFaces.length; i++) {
           const tf = trackedFaces[i];
-          const smoothBox: FaceBox = {
-            x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1,
-          };
+          const smoothBox: FaceBox = { x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1 };
           const trackOpts = { ...resolvedOpts };
           if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
             trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
@@ -256,51 +243,39 @@ async function anonymizeVideoV2(
         }
       }
 
-      // Encode frame
       const tsUs = Math.round(sample.timestamp * 1_000_000);
       const durUs = Math.round(sample.duration * 1_000_000) || 33_333;
       try {
-        const videoFrame = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
-        encoder.encode(videoFrame);
-        videoFrame.close();
-      } catch (e) {
-        console.error('Frame encode failed:', e);
-      }
+        const vf = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
+        encoder.encode(vf);
+        vf.close();
+      } catch (e) { console.error('Frame encode failed:', e); }
 
-      if (encoderError) {
-        console.error('VideoEncoder failed:', encoderError);
-        throw new Error('VideoEncoder error');
-      }
+      if (encoderError) { console.error('VideoEncoder failed'); throw new Error('VideoEncoder error'); }
 
       frameIndex++;
-
-      // Progress based on frame index vs estimated total
-      const progress = estimatedTotalFrames > 0
-        ? 5 + Math.round((frameIndex / estimatedTotalFrames) * 90)
-        : 5 + Math.min(90, Math.round(frameIndex / (frameIndex + 30) * 90));
+      const progress = estimatedTotalFrames > 0 ? 5 + Math.round((frameIndex / estimatedTotalFrames) * 90) : 5 + Math.min(90, Math.round(frameIndex / (frameIndex + 30) * 90));
       onProgress?.(Math.min(95, progress));
 
       if (onEta && frameIndex > 5) {
         const elapsed = (performance.now() - startTime) / 1000;
         const rate = frameIndex / elapsed;
-        const remaining = estimatedTotalFrames - frameIndex;
-        const eta = Math.max(0, Math.round(remaining / rate));
-        onEta(eta);
+        const remaining = Math.max(0, estimatedTotalFrames - frameIndex);
+        onEta(Math.max(0, Math.round(remaining / rate)));
       }
     } finally {
       sample.close();
     }
-
     sampleResult = await sampleIterator.next();
   }
 
-  // Flush encoder and add encoded chunks to output
+  // 5. Flush encoder and add to output
   try { await encoder.flush(); } catch { /* ignore */ }
   encoder.close();
 
+  const videoMeta = { decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH } };
   let isFirstVideoPacket = true;
-  const videoMeta = videoDecoderConfig ? { decoderConfig: videoDecoderConfig } : undefined;
-  for (const { chunk } of encodedChunks) {
+  for (const chunk of encodedChunks) {
     if (signal?.aborted) break;
     const data = new Uint8Array(chunk.byteLength);
     chunk.copyTo(data);
@@ -315,11 +290,10 @@ async function anonymizeVideoV2(
   }
   videoSource.close();
 
-  // 4. Audio passthrough (track already added to output before start)
+  // 6. Audio passthrough
   if (audioSource) {
     const decoderConfig = await audioTrack!.getDecoderConfig();
     const audioMetadata = decoderConfig ? { decoderConfig } : undefined;
-
     const audioSink = new EncodedPacketSink(audioTrack!);
     let isFirstPacket = true;
     for await (const packet of audioSink.packets()) {
