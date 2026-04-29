@@ -145,7 +145,6 @@ export async function anonymizeVideo(
     if (f % detectionInterval === 0 || f === 0) {
       await seekToFrame(video, f, fps);
       const frameCanvas = canvasFromVideo(video);
-      onProgress?.(Math.round((f / totalFrames) * 10));
       currentFaces = await detectFaces(frameCanvas, { modelId });
     }
 
@@ -163,7 +162,7 @@ export async function anonymizeVideo(
       (videoTrack as { requestFrame: () => void }).requestFrame();
     }
 
-    onProgress?.(10 + Math.round((f / totalFrames) * 89));
+    onProgress?.(Math.round((f / totalFrames) * 95));
   }
 
   // Final remaining progress
