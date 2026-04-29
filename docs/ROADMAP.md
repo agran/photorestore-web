@@ -91,14 +91,15 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 
 ### Face Tracking — ByteTrack (v0.7.1)
 
-- **ByteTrack**: two-stage association — high-confidence detections matched first, then low-confidence detections matched to remaining tracks. Handles occlusions and crossing faces. ~200 lines, no ML.
-- **Keyframe interval**: adaptive — 15 frames when all tracks confident (Kalman covariance low), 5 frames when any track shaky
-- **Kalman filter**: 4-state (x, y, dx, dy) per face, constant velocity model, for prediction between keyframes
-- **Cheap verifier**: BlazeFace on every frame (<5ms), full detector (SCRFD/RetinaFace) only on keyframes for high recall
-- **Drift recovery**: re-detect when IoU < 0.3 for 3 consecutive frames
-- **New face**: unmatched high-conf detection → spawn tracker
-- **Forward-backward consistency**: at finalize, run tracking in both directions and average — drastically stabilizes bbox
-- **Temporal mask smoothing**: low-pass filter (EMA α≈0.5) on bbox corners before rasterize — eliminates "flickering halo" from feather + tracking jitter
+- **ByteTrack**: three-stage association — Stage 1 (high-conf × strict cost), Stage 1.5 (unmatched high-conf rescue with adaptive threshold), Stage 2 (low-conf × wide window). ~250 lines, no ML.
+- **Keyframe interval**: adaptive — 15→60 frames when tracks confident, 5 frames when any track shaky
+- **Kalman filter**: 8 states (x, y, w, h, dx, dy, dw, dh) + anchor positions (ax, ay, aw, ah) for precise per-frame velocity. dw/dh predict size change between keyframes
+- **Velocity**: computed as `(newPos − anchor) / elapsed` — where anchor = position at last update, elapsed = frames since then. Eliminates error accumulation from dt·detectionInterval
+- **Re-association**: new track creation checks nearby recently-lost tracks (lost≤5, cost<2.5) — reuses old ID preserving velocity vector
+- **Cost function**: 1−IoU for overlapping boxes, 1+centerDist/diag for disjoint ones. Adaptive Stage 1.5 threshold: `1.1 + lostFrames*0.06` — wider window for longer-lost tracks
+- **Velocity decay**: only on truly lost tracks (lostCount>0), not during normal predict frames. When lost: VEL_DECAY_POS=0.95, VEL_DECAY_SIZE=0.9 per frame
+- **EMA smoothing**: α=0.55 on update, α=1.0 on predict (no lag, Kalman already smoothed via velocity EMA)
+- **Temporal mask smoothing**: low-pass filter (EMA α≈0.55) on smoothBox before rasterize — eliminates mask flickering
 
 ### Scale-Invariant Effects for Video
 
@@ -108,18 +109,17 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 
 ### Audio Passthrough (v0.7.2)
 
-- **Demux:** `MP4Box.js` reads audio track as `EncodedAudioChunk` packets
-- **Remux:** `mp4-muxer` (npm, ~20KB) accepts `EncodedAudioChunk` directly — no re-encode
+- **Demux:** `mediabunny` splits MP4/WebM into video + audio tracks
+- **Remux:** `mediabunny` (npm, ~400KB) — audio passthrough without re-encode
 - **Caveat:** container must match (MP4→MP4 for AAC, WebM→WebM for Opus/Vorbis). If crossing containers (MP4→WebM), re-encode audio via `AudioEncoder`
 - **No audio track?** Skip entirely, output video-only
 
-### Memory & Backpressure (built into pipeline from day 1)
+### Memory & Backpressure (implemented)
 
-- **`VideoFrame.close()`** after every stage — unclosed frame on 1080p = ~8MB GPU memory leak
-- **Streaming pipeline:** decode → track → effect → encode — one frame in flight + small buffer, never accumulate all frames in arrays
-- **Encoder backpressure:** `encodeQueueSize` can grow faster than encoder processes; await `flush()` every N frames
-- **Tab throttling:** use `requestVideoFrameCallback` or worker-internal pump via `setTimeout(0)`, not `rAF` (stops in background)
-- **Cancel:** `worker.terminate()` — clean, immediate
+- **`VideoFrame.close()`** per frame + **`VideoSample.close()`** in try/finally — no GPU memory leaks
+- **Streaming pipeline:** decode → track → effect → encode — one frame in flight, EncodedVideoChunks buffered for muxing
+- **Encoder flush:** `encoder.flush()` after all frames before finalize
+- **Cancel:** `AbortController` + `signal.aborted` checks in loops
 
 ### UI Flow
 
