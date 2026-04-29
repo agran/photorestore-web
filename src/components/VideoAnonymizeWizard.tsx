@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Download, X, Settings2 } from 'lucide-react';
+import { Play, Download, X, Settings2, Square } from 'lucide-react';
 import { Button } from './ui/button';
 import { useVideoAnonymizeStore } from '@/store/videoAnonymizeStore';
 import { getModelsByPipeline, formatModelSize, modelRuntimeLabel } from '@/ml/modelRegistry';
@@ -30,6 +30,8 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
   } = store;
 
   const [isProcessing, setIsProcessing] = useState(false);
+  const [eta, setEta] = useState(0);
+  const abortRef = useRef<AbortController | null>(null);
   const anonymizeModels = getModelsByPipeline('anonymize');
 
   const handleFile = useCallback((file: File) => {
@@ -55,7 +57,14 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     const file = store.file;
     if (!file) return;
     setIsProcessing(true);
+    setEta(0);
     store.setStep('processing');
+    store.setAborted(false);
+    store.setStartTime(performance.now());
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const blob = await anonymizeVideo(file, {
         modelId,
@@ -64,10 +73,14 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
           emoji: emojiInput || '😶',
         },
         onProgress: (p) => store.setProgress(p),
+        onEta: (s) => setEta(s),
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
       const url = URL.createObjectURL(blob);
       store.setOutput(blob, url);
     } catch (err) {
+      if (controller.signal.aborted) return;
       toast({
         title: t('errors.pipelineFailed'),
         description: err instanceof Error ? err.message : String(err),
@@ -76,11 +89,18 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
       store.setStep('loaded');
     } finally {
       setIsProcessing(false);
+      abortRef.current = null;
     }
   }, [store, modelId, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, emojiInput, t]);
 
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort();
+    store.setAborted(true);
+    store.setStep('loaded');
+  }, [store]);
+
   const handleDownload = useCallback(() => {
-    if (outputUrl) downloadUrl(outputUrl, 'anonymized.webm');
+    if (outputUrl) downloadUrl(outputUrl, 'anonymized.mp4');
   }, [outputUrl]);
 
   if (step === 'idle') {
@@ -147,17 +167,22 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
             <span>{formatDuration(duration)}</span>
             <span>{fps}fps</span>
             <span>{width}×{height}</span>
-            <span className="text-amber-600 dark:text-amber-400">⚠ Audio not preserved</span>
           </div>
         )}
 
         {/* Progress bar */}
         {isProcessing && (
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 space-y-1">
             <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
               <div className="h-full bg-primary transition-all duration-300" style={{ width: `${progress}%` }} />
             </div>
-            <p className="mt-1 text-center text-xs text-muted-foreground">{t('common.processing')} {progress}%</p>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{t('common.processing')} {progress}%</span>
+              {eta > 0 && <span>~{eta}s</span>}
+              <Button variant="ghost" size="sm" className="h-6 gap-1 px-1.5 text-xs text-destructive" onClick={handleCancel}>
+                <Square className="h-3 w-3" />{t('common.cancel')}
+              </Button>
+            </div>
           </div>
         )}
 

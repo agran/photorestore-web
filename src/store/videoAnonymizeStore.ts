@@ -23,6 +23,8 @@ interface VideoAnonymizeState {
   emojiInput: string;
   emojiRandom: boolean;
   progress: number;
+  aborted: boolean;
+  startTime: number;
   outputBlob: Blob | null;
   outputUrl: string | null;
 
@@ -39,6 +41,8 @@ interface VideoAnonymizeState {
   setEmojiInput: (v: string) => void;
   setEmojiRandom: (v: boolean) => void;
   setProgress: (p: number) => void;
+  setAborted: (v: boolean) => void;
+  setStartTime: (t: number) => void;
   setOutput: (blob: Blob, url: string) => void;
   reset: () => void;
 }
@@ -63,6 +67,8 @@ const initialState = {
   emojiInput: '😶',
   emojiRandom: true,
   progress: 0,
+  aborted: false,
+  startTime: 0,
   outputBlob: null as Blob | null,
   outputUrl: null as string | null,
 };
@@ -83,6 +89,8 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set) => ({
   setEmojiInput: (emojiInput) => set({ emojiInput }),
   setEmojiRandom: (emojiRandom) => set({ emojiRandom }),
   setProgress: (progress) => set({ progress }),
+  setAborted: (aborted) => set({ aborted }),
+  setStartTime: (startTime) => set({ startTime }),
   setOutput: (outputBlob, outputUrl) => set({ step: 'done', progress: 100, outputBlob, outputUrl }),
 
   reset: () => {

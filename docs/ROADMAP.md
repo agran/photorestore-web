@@ -135,14 +135,13 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 
 - [x] v0.7.0: WebCodecs decode/encode + per-frame detection + WebWorker pipeline (proof-of-concept, short clips <10s, no tracking)
 - [x] v0.7.1: ByteTrack + adaptive keyframes + temporal mask smoothing + scale-invariant effects
-- [ ] v0.7.2: Audio passthrough (MP4Box + mp4-muxer), ETA, cancel, long video support
+- [x] v0.7.2: Audio passthrough (MP4Box + mp4-muxer), ETA, cancel, long video support
 - [ ] v0.7.3: UI — video scrubber, keyframe editor, preview during processing
 - [ ] v0.7.4: [optional] ArcFace re-ID for long occlusions (face descriptor ONNX)
 
 ### Dependencies
 
-- `mp4box.js` — MP4 demuxing (npm, ~200KB)
-- `mp4-muxer` — MP4/WebM muxing with audio passthrough (npm, ~20KB)
+- `mediabunny` — MP4/WebM demux + mux with audio passthrough (npm, ~400KB)
 - `@ffmpeg/ffmpeg` / `@ffmpeg/util` — fallback encode for very old browsers
 - `arcface-mbn.onnx` — only for v0.7.4 re-ID
 - No other new runtime deps — Canvas API (`OffscreenCanvas`, `ImageBitmap`) + existing ORT
