@@ -11,13 +11,14 @@ AI-powered photo restoration running entirely in your browser — no backend, no
 
 ## Features
 
-- **4× Super Resolution** — Real-ESRGAN
-- **Face Restoration** — GFPGAN / CodeFormer
-- **Hide Faces** — Blur, pixelate, emoji overlay
-- **AI Inpainting** — LaMa
-- **Smart Denoising** — SCUNet
+- **4× Super Resolution** — Real-ESRGAN, Real-CUGAN, NMKD Superscale, 4xNomos8kSC, 4xLSDIR-DAT
+- **Hide Faces** — Blur, pixelate, solid fill, emoji overlay with interactive face editing
+- **Face Restoration** — GFPGAN / CodeFormer (coming soon)
+- **AI Inpainting** — LaMa (coming soon)
+- **Smart Denoising** — DRUNet (coming soon)
 - **100% Private** — everything runs locally in WebGPU/WASM
 - **Bilingual UI** — English & Russian
+- **Mobile-friendly** — responsive layout, touch support
 
 ## Quick Start
 

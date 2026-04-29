@@ -16,8 +16,11 @@
     "close": "Close",
     "loading": "Loading…",
     "processing": "Processing…",
+    "process": "Process",
     "apply": "Apply",
-    "reset": "Reset"
+    "reset": "Reset",
+    "expand": "More",
+    "collapse": "Less"
   },
   "home": {
     "heroTitle": "Restore Your Photos with AI",
@@ -50,10 +53,15 @@
     "tools": {
       "title": "Tools",
       "upscale": "Upscale ×4",
+      "upscaleShort": "Upscale",
       "faceRestore": "Face Restore",
+      "faceRestoreShort": "Restore",
       "inpaint": "Inpaint",
+      "inpaintShort": "Inpaint",
       "denoise": "Denoise",
-      "anonymize": "Hide Faces"
+      "denoiseShort": "Denoise",
+      "anonymize": "Hide Faces",
+      "anonymizeShort": "Hide Faces"
     },
     "compare": "Compare Before / After",
     "history": "History",
@@ -139,6 +147,7 @@
     "detect": "Detect Faces",
     "apply": "Apply Effect",
     "facesFound": "{{count}} faces found",
+    "facesFoundShort": "Faces: {{count}}",
     "noFaces": "No faces detected",
     "effect": "Effect",
     "effects": {

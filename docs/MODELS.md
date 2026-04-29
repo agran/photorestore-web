@@ -14,11 +14,11 @@ This document describes all ML models planned for PhotoRestore Web, their source
 | `lsdir-dat`               | 4xLSDIR-DAT              | Upscale      | MIT          | 62 MB  | 1×3×256×256  | WASM (JSEP bug) |
 | `cugan-up4x`              | Real-CUGAN Up×4          | Upscale      | MIT          | 2 MB   | 1×3×64×64    | WebGPU ✅       |
 | `cugan-up4x-denoise`      | Real-CUGAN Up×4 Denoise  | Upscale      | MIT          | 2 MB   | 1×3×64×64    | WebGPU ✅       |
-| `scrfd-500m`              | SCRFD-500M               | Face Detection | MIT        | 2.4 MB | 1×3×640×640  | WebGPU ✅       |
-| `scrfd-10g`               | SCRFD-10G-KPS            | Face Detection | Apache-2.0 | 15.5 MB | 1×3×640×640  | WASM (JSEP bug) |
-| `yunet-2023`              | YuNet 2023               | Face Detection | MIT        | 0.2 MB | 1×3×640×640  | WebGPU ✅       |
-| `retinaface-mbn025`       | RetinaFace-MBN025        | Face Detection | MIT        | 1.7 MB | 1×3×640×640  | WebGPU ✅       |
-| `blazeface`               | BlazeFace                 | Face Detection | Apache-2.0 | 0.5 MB | 1×3×128×128  | WebGPU ✅       |
+| `scrfd-500m`              | SCRFD-500M               | Hide Faces    | MIT          | 2.4 MB | 1×3×640×640  | WebGPU ✅       |
+| `scrfd-10g`               | SCRFD-10G-KPS            | Hide Faces    | Apache-2.0   | 15.5 MB | 1×3×640×640  | WASM (JSEP bug) |
+| `yunet-2023`              | YuNet 2023               | Hide Faces    | MIT          | 0.2 MB | 1×3×640×640  | WebGPU ✅       |
+| `retinaface-mbn025`       | RetinaFace-MobileNet0.25 | Hide Faces    | MIT          | 1.7 MB | 1×3×640×640  | WebGPU ✅       |
+| `blazeface`               | BlazeFace                | Hide Faces    | Apache-2.0   | 0.5 MB | 1×3×128×128  | WebGPU ✅       |
 | `gfpgan-v1.4`             | GFPGAN v1.4              | Face Restore | Apache-2.0   | 325 MB | 1×3×512×512  | —               |
 | `codeformer`              | CodeFormer               | Face Restore | S-Lab        | 359 MB | 1×3×512×512  | —               |
 | `lama`                    | LaMa                     | Inpaint      | Apache-2.0   | 200 MB | 1×4×512×512  | —               |

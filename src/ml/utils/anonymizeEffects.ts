@@ -18,11 +18,11 @@ export interface AnonymizeEffectOptions {
 const DEFAULT_OPTIONS: Required<AnonymizeEffectOptions> = {
   effect: 'pixelate',
   blurRadius: 12,
-  pixelateSize: 8,
+  pixelateSize: 16,
   solidColor: '#000000',
   padding: 4,
-  feather: 0,
-  maskShape: 'rect',
+  feather: 4,
+  maskShape: 'ellipse',
   emoji: '😶',
   emojis: [],
 };
@@ -46,21 +46,6 @@ function expandBox(box: FaceBox, padding: number, canvasW: number, canvasH: numb
   return { x, y, width: w, height: h, confidence: box.confidence };
 }
 
-function clipShape(ctx: CanvasRenderingContext2D, box: FaceBox, shape: MaskShape) {
-  ctx.beginPath();
-  if (shape === 'ellipse') {
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    const rx = box.width / 2;
-    const ry = box.height / 2;
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-  } else {
-    ctx.rect(box.x, box.y, box.width, box.height);
-  }
-  ctx.closePath();
-  ctx.clip();
-}
-
 function drawMaskShape(ctx: CanvasRenderingContext2D, box: FaceBox, shape: MaskShape) {
   ctx.beginPath();
   if (shape === 'ellipse') {
@@ -75,39 +60,41 @@ function drawMaskShape(ctx: CanvasRenderingContext2D, box: FaceBox, shape: MaskS
   ctx.fill();
 }
 
-function applyFeatherMask(
-  targetCtx: CanvasRenderingContext2D,
-  box: FaceBox,
-  feather: number,
-  shape: MaskShape,
-  canvasW: number,
-  canvasH: number
-) {
-  if (feather <= 0) return;
+function applyClip(ctx: CanvasRenderingContext2D, box: FaceBox, shape: MaskShape) {
+  ctx.beginPath();
+  if (shape === 'ellipse') {
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const rx = box.width / 2;
+    const ry = box.height / 2;
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+  } else {
+    ctx.rect(box.x, box.y, box.width, box.height);
+  }
+  ctx.clip();
+}
 
-  const mask = createCanvas(canvasW, canvasH);
+function createFeatherMask(w: number, h: number, feather: number, shape: MaskShape): { mask: HTMLCanvasElement; border: number } {
+  const border = feather > 0 ? Math.ceil(feather * 3) : 0;
+  const mw = w + border * 2;
+  const mh = h + border * 2;
+  const mask = createCanvas(mw, mh);
   const maskCtx = mask.getContext('2d')!;
 
-  maskCtx.fillStyle = 'white';
-  drawMaskShape(maskCtx, box, shape);
+  if (feather <= 0) {
+    maskCtx.fillStyle = 'white';
+    drawMaskShape(maskCtx, { x: border, y: border, width: w, height: h, confidence: 0 }, shape);
+    return { mask, border };
+  }
 
-  maskCtx.filter = `blur(${feather}px)`;
+  const f = Math.max(0, Math.min(feather, w / 2 - 1, h / 2 - 1));
+  const eroded: FaceBox = { x: border + f, y: border + f, width: w - f * 2, height: h - f * 2, confidence: 0 };
+  maskCtx.filter = `blur(${f}px)`;
   maskCtx.fillStyle = 'white';
-  const padW = feather * 2;
-  const padH = feather * 2;
-  const paddedBox: FaceBox = {
-    x: box.x - feather,
-    y: box.y - feather,
-    width: box.width + padW,
-    height: box.height + padH,
-    confidence: 0,
-  };
-  drawMaskShape(maskCtx, paddedBox, shape);
+  drawMaskShape(maskCtx, eroded, shape);
   maskCtx.filter = 'none';
 
-  targetCtx.globalCompositeOperation = 'destination-in';
-  targetCtx.drawImage(mask, 0, 0);
-  targetCtx.globalCompositeOperation = 'source-over';
+  return { mask, border };
 }
 
 function getFaceRegion(
@@ -140,14 +127,20 @@ export function applyBlur(
   regionCtx.drawImage(region, 0, 0);
   regionCtx.filter = 'none';
 
-  destCtx.save();
-  clipShape(destCtx, expanded, shape);
-  destCtx.drawImage(region, expanded.x, expanded.y);
-
   if (feather > 0) {
-    applyFeatherMask(destCtx, expanded, feather, shape, canvasW, canvasH);
+    const { mask, border } = createFeatherMask(expanded.width, expanded.height, feather, shape);
+    const tmp = createCanvas(mask.width, mask.height);
+    const tmpCtx = tmp.getContext('2d')!;
+    tmpCtx.drawImage(region, border, border);
+    tmpCtx.globalCompositeOperation = 'destination-in';
+    tmpCtx.drawImage(mask, 0, 0);
+    destCtx.drawImage(tmp, expanded.x - border, expanded.y - border);
+  } else {
+    destCtx.save();
+    applyClip(destCtx, expanded, shape);
+    destCtx.drawImage(region, expanded.x, expanded.y);
+    destCtx.restore();
   }
-  destCtx.restore();
 }
 
 export function applyPixelate(
@@ -162,7 +155,7 @@ export function applyPixelate(
   canvasH: number
 ) {
   const expanded = expandBox(box, padding, canvasW, canvasH);
-  const blockSize = Math.max(2, pixelateSize);
+  const blockSize = Math.max(1, pixelateSize);
 
   const smallW = Math.max(1, Math.round(expanded.width / blockSize));
   const smallH = Math.max(1, Math.round(expanded.height / blockSize));
@@ -172,15 +165,22 @@ export function applyPixelate(
   smallCtx.imageSmoothingEnabled = true;
   smallCtx.drawImage(source, expanded.x, expanded.y, expanded.width, expanded.height, 0, 0, smallW, smallH);
 
-  destCtx.save();
-  clipShape(destCtx, expanded, shape);
-  destCtx.imageSmoothingEnabled = false;
-  destCtx.drawImage(small, 0, 0, smallW, smallH, expanded.x, expanded.y, expanded.width, expanded.height);
-
   if (feather > 0) {
-    applyFeatherMask(destCtx, expanded, feather, shape, canvasW, canvasH);
+    const { mask, border } = createFeatherMask(expanded.width, expanded.height, feather, shape);
+    const tmp = createCanvas(mask.width, mask.height);
+    const tmpCtx = tmp.getContext('2d')!;
+    tmpCtx.imageSmoothingEnabled = false;
+    tmpCtx.drawImage(small, 0, 0, smallW, smallH, border, border, expanded.width, expanded.height);
+    tmpCtx.globalCompositeOperation = 'destination-in';
+    tmpCtx.drawImage(mask, 0, 0);
+    destCtx.drawImage(tmp, expanded.x - border, expanded.y - border);
+  } else {
+    destCtx.save();
+    applyClip(destCtx, expanded, shape);
+    destCtx.imageSmoothingEnabled = false;
+    destCtx.drawImage(small, 0, 0, smallW, smallH, expanded.x, expanded.y, expanded.width, expanded.height);
+    destCtx.restore();
   }
-  destCtx.restore();
 }
 
 export function applySolid(
@@ -196,15 +196,22 @@ export function applySolid(
 ) {
   const expanded = expandBox(box, padding, canvasW, canvasH);
 
-  destCtx.save();
-  destCtx.fillStyle = solidColor;
-  clipShape(destCtx, expanded, shape);
-  destCtx.fillRect(expanded.x, expanded.y, expanded.width, expanded.height);
-
   if (feather > 0) {
-    applyFeatherMask(destCtx, expanded, feather, shape, canvasW, canvasH);
+    const { mask, border } = createFeatherMask(expanded.width, expanded.height, feather, shape);
+    const tmp = createCanvas(mask.width, mask.height);
+    const tmpCtx = tmp.getContext('2d')!;
+    tmpCtx.fillStyle = solidColor;
+    tmpCtx.fillRect(border, border, expanded.width, expanded.height);
+    tmpCtx.globalCompositeOperation = 'destination-in';
+    tmpCtx.drawImage(mask, 0, 0);
+    destCtx.drawImage(tmp, expanded.x - border, expanded.y - border);
+  } else {
+    destCtx.save();
+    destCtx.fillStyle = solidColor;
+    applyClip(destCtx, expanded, shape);
+    destCtx.fillRect(expanded.x, expanded.y, expanded.width, expanded.height);
+    destCtx.restore();
   }
-  destCtx.restore();
 }
 
 export function applyEmoji(
@@ -220,20 +227,26 @@ export function applyEmoji(
 ) {
   const expanded = expandBox(box, padding, canvasW, canvasH);
 
-  const textCanvas = createCanvas(expanded.width, expanded.height);
-  const textCtx = textCanvas.getContext('2d')!;
-  const fontSize = Math.min(expanded.width, expanded.height);
-  textCtx.font = `${fontSize}px sans-serif`;
-  textCtx.textAlign = 'center';
-  textCtx.textBaseline = 'middle';
-  textCtx.fillText(emoji, expanded.width / 2, expanded.height / 2);
-
-  destCtx.save();
-  clipShape(destCtx, expanded, shape);
-  destCtx.drawImage(textCanvas, expanded.x, expanded.y);
-
   if (feather > 0) {
-    applyFeatherMask(destCtx, expanded, feather, shape, canvasW, canvasH);
+    const { mask, border } = createFeatherMask(expanded.width, expanded.height, feather, shape);
+    const tmp = createCanvas(mask.width, mask.height);
+    const tmpCtx = tmp.getContext('2d')!;
+    const fontSize = Math.min(expanded.width, expanded.height);
+    tmpCtx.font = `${fontSize}px sans-serif`;
+    tmpCtx.textAlign = 'center';
+    tmpCtx.textBaseline = 'middle';
+    tmpCtx.fillText(emoji, mask.width / 2, mask.height / 2);
+    tmpCtx.globalCompositeOperation = 'destination-in';
+    tmpCtx.drawImage(mask, 0, 0);
+    destCtx.drawImage(tmp, expanded.x - border, expanded.y - border);
+  } else {
+    destCtx.save();
+    applyClip(destCtx, expanded, shape);
+    const fontSize = Math.min(expanded.width, expanded.height);
+    destCtx.font = `${fontSize}px sans-serif`;
+    destCtx.textAlign = 'center';
+    destCtx.textBaseline = 'middle';
+    destCtx.fillText(emoji, expanded.x + expanded.width / 2, expanded.y + expanded.height / 2);
+    destCtx.restore();
   }
-  destCtx.restore();
 }

@@ -70,10 +70,11 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
     [offsetX, offsetY, scale, imgWidth, imgHeight, containerWidth]
   );
 
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent, index: number, corner: 'tl' | 'tr' | 'bl' | 'br' | null) => {
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent, index: number, corner: 'tl' | 'tr' | 'bl' | 'br' | null) => {
       if (step !== 'editing') return;
       e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
       const box = faces[index];
       setDragging({
         index,
@@ -86,10 +87,11 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
     [faces, step]
   );
 
-  const handleOverlayMouseDown = useCallback(
-    (e: React.MouseEvent) => {
+  const handleOverlayPointerDown = useCallback(
+    (e: React.PointerEvent) => {
       if (step !== 'editing') return;
       if (dragging) return;
+      e.currentTarget.setPointerCapture(e.pointerId);
       const pt = toImage(e.clientX, e.clientY);
       setDrawing({ startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y });
     },
@@ -98,7 +100,7 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
 
   useEffect(() => {
     if (!dragging) return;
-    const handleMove = (e: MouseEvent) => {
+    const handleMove = (e: PointerEvent) => {
       setDragging((prev) => {
         if (!prev) return null;
         const dx = (e.clientX - prev.startX) / scale;
@@ -132,17 +134,19 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
       });
     };
     const handleUp = () => setDragging(null);
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
     };
   }, [dragging, scale, imgWidth, imgHeight, updateFace]);
 
   useEffect(() => {
     if (!drawing) return;
-    const handleMove = (e: MouseEvent) => {
+    const handleMove = (e: PointerEvent) => {
       setDrawing((prev) => {
         if (!prev) return null;
         const pt = toImage(e.clientX, e.clientY);
@@ -162,11 +166,13 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
         return null;
       });
     };
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
     };
   }, [drawing, toImage, addFace]);
 
@@ -174,8 +180,8 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
     <div
       ref={overlayRef}
       className="absolute inset-0 select-none"
-      style={{ cursor: step === 'editing' ? 'crosshair' : 'default' }}
-      onMouseDown={handleOverlayMouseDown}
+      style={{ cursor: step === 'editing' ? 'crosshair' : 'default', touchAction: 'none' }}
+      onPointerDown={handleOverlayPointerDown}
     >
       <img
         src={imageUrl}
@@ -200,10 +206,11 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
           <div key={i} style={{ position: 'absolute', left: sx, top: sy, width: sw, height: sh }}>
             <div
               className="absolute inset-0 border-2 border-cyan-400 bg-cyan-400/10"
-              onMouseDown={(e) => handleMouseDown(e, i, null)}
+              onPointerDown={(e) => handlePointerDown(e, i, null)}
             />
             <button
               className="absolute -right-3 -top-3 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs text-white hover:bg-red-600"
+              onPointerDown={(e) => e.stopPropagation()}
               onClick={() => deleteFace(i)}
             >
               &times;
@@ -225,7 +232,7 @@ export default function FaceOverlay({ imageUrl, imgWidth, imgHeight }: FaceOverl
                     [isTop ? 'top' : 'bottom']: -HANDLE_SIZE / 2,
                     cursor: `${corner === 'tl' || corner === 'br' ? 'nwse' : 'nesw'}-resize`,
                   }}
-                  onMouseDown={(e) => handleMouseDown(e, i, corner)}
+                  onPointerDown={(e) => handlePointerDown(e, i, corner)}
                 />
               );
             })}

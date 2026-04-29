@@ -18,7 +18,7 @@ export default function Layout() {
   }, [theme]);
 
   return (
-    <div className="grid min-h-screen" style={{ gridTemplateRows: 'auto 1fr auto' }}>
+    <div className="grid h-full" style={{ gridTemplateRows: 'auto 1fr auto' }}>
       <Header />
       <main className="min-h-0">
         <Outlet />

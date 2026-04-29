@@ -11,7 +11,7 @@ export default function ProgressBar() {
 
   if (activeJob.status === 'error') {
     return (
-      <div className="fixed bottom-4 right-4 z-50 w-80 rounded-lg border border-destructive/50 bg-destructive/10 p-4 shadow-lg">
+      <div className="fixed top-14 left-1/2 z-50 w-[calc(100%-1rem)] max-w-80 -translate-x-1/2 rounded-lg border border-destructive/50 bg-destructive/10 p-4 shadow-lg md:top-auto md:bottom-4 md:right-4 md:left-auto md:w-80 md:max-w-none md:translate-x-0">
         <div className="flex items-start gap-2">
           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
           <div className="min-w-0">
@@ -30,7 +30,7 @@ export default function ProgressBar() {
   if (activeJob.status !== 'running') return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-72 rounded-lg border bg-background p-4 shadow-lg">
+    <div className="fixed top-14 left-1/2 z-50 w-[calc(100%-1rem)] max-w-80 -translate-x-1/2 rounded-lg border bg-background p-4 shadow-lg md:top-auto md:bottom-4 md:right-4 md:left-auto md:w-72 md:max-w-none md:translate-x-0">
       <p className="mb-2 text-sm font-medium">
         {t('common.processing')} {activeJob.pipeline}
       </p>

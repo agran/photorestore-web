@@ -16,8 +16,11 @@
     "close": "Закрыть",
     "loading": "Загрузка…",
     "processing": "Обработка…",
+    "process": "Обработать",
     "apply": "Применить",
-    "reset": "Сбросить"
+    "reset": "Сбросить",
+    "expand": "Ещё",
+    "collapse": "Скрыть"
   },
   "home": {
     "heroTitle": "Реставрируйте фотографии с помощью ИИ",
@@ -50,10 +53,15 @@
     "tools": {
       "title": "Инструменты",
       "upscale": "Увеличить ×4",
+      "upscaleShort": "Увеличить",
       "faceRestore": "Восстановить лица",
+      "faceRestoreShort": "Восст. лиц",
       "inpaint": "Закраска",
+      "inpaintShort": "Закраска",
       "denoise": "Шумоподавление",
-      "anonymize": "Скрыть лица"
+      "denoiseShort": "Убрать шум",
+      "anonymize": "Скрыть лица",
+      "anonymizeShort": "Скрыть лица"
     },
     "compare": "Сравнить до / после",
     "history": "История",
@@ -139,6 +147,7 @@
     "detect": "Найти лица",
     "apply": "Применить эффект",
     "facesFound": "Найдено лиц: {{count}}",
+    "facesFoundShort": "Лиц: {{count}}",
     "noFaces": "Лица не обнаружены",
     "effect": "Эффект",
     "effects": {
@@ -148,10 +157,10 @@
       "emoji": "Эмодзи"
     },
     "blurRadius": "Радиус размытия",
-    "pixelateSize": "Размер блока",
+    "pixelateSize": "Размер пикселя",
     "color": "Цвет",
-    "padding": "Отступ",
-    "feather": "Растушёвка",
+    "padding": "Размер маски",
+    "feather": "Мягкий край",
     "preview": "Предпросмотр",
     "emojiRandom": "Случайный",
     "ellipse": "Овал"

@@ -1,20 +1,64 @@
-import { create } from 'zustand';
-import type { FaceBox } from '@/ml/utils/faceDetect';
 import type { AnonymizeEffect, MaskShape } from '@/ml/utils/anonymizeEffects';
+import type { FaceBox } from '@/ml/utils/faceDetect';
+import { create } from 'zustand';
 
 export type AnonymizeStep = 'idle' | 'detecting' | 'editing' | 'applying';
 
 export const EMOJI_POPULAR = [
-  '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '😊',
-  '😇', '😍', '🤩', '😘', '😗', '😚', '😋', '😛', '😜', '🤪',
-  '😎', '🤓', '🧐', '🥳', '😏', '😶', '😐', '😑', '😬', '🙄',
-  '🤔', '🤗', '🤭', '🐱', '🐶', '🐼', '🐨', '🐸', '🦊', '🐰',
-  '🫠', '🥴', '😵', '🤯', '🤠', '😈', '👻', '💀', '🎃', '🤡',
+  '😀',
+  '😃',
+  '😄',
+  '😁',
+  '😆',
+  '😅',
+  '🤣',
+  '😂',
+  '🙂',
+  '😊',
+  '😇',
+  '😍',
+  '🤩',
+  '😘',
+  '😗',
+  '😚',
+  '😋',
+  '😛',
+  '😜',
+  '🤪',
+  '😎',
+  '🤓',
+  '🧐',
+  '🥳',
+  '😏',
+  '😶',
+  '😐',
+  '😑',
+  '😬',
+  '🙄',
+  '🤔',
+  '🤗',
+  '🤭',
+  '🐱',
+  '🐶',
+  '🐼',
+  '🐨',
+  '🐸',
+  '🦊',
+  '🐰',
+  '🫠',
+  '🥴',
+  '🤯',
+  '🤠',
+  '😈',
+  '👻',
+  '💀',
+  '🎃',
 ];
 
 function genRandomEmojis(count: number): string[] {
-  return Array.from({ length: count }, () =>
-    EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)]
+  return Array.from(
+    { length: count },
+    () => EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)]
   );
 }
 
@@ -59,15 +103,15 @@ const initialState = {
   faces: [] as FaceBox[],
   effect: 'pixelate' as AnonymizeEffect,
   blurRadius: 12,
-  pixelateSize: 8,
+  pixelateSize: 16,
   solidColor: '#000000',
   modelId: 'scrfd-500m',
   preview: false,
   emojiInput: '😶',
   emojiRandom: false,
   padding: 4,
-  feather: 0,
-  maskShape: 'rect' as MaskShape,
+  feather: 4,
+  maskShape: 'ellipse' as MaskShape,
   randomEmojis: [] as string[],
 };
 
@@ -100,7 +144,9 @@ export const useAnonymizeStore = create<AnonymizeState>((set, get) => ({
   addFace: (box) =>
     set((state) => {
       const faces = [...state.faces, box];
-      const randomEmojis = state.emojiRandom ? [...state.randomEmojis, EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)]] : state.randomEmojis;
+      const randomEmojis = state.emojiRandom
+        ? [...state.randomEmojis, EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)]]
+        : state.randomEmojis;
       return { faces, step: 'editing', randomEmojis };
     }),
 

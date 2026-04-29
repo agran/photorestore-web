@@ -14,7 +14,7 @@ export default function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-      <div className="container flex h-14 items-center gap-6">
+      <div className="container flex h-14 items-center gap-2 max-md:px-2 md:gap-6">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 font-bold">
           <Sparkles className="h-5 w-5 text-primary" />
@@ -22,7 +22,7 @@ export default function Header() {
         </Link>
 
         {/* Navigation */}
-        <nav className="flex items-center gap-4">
+        <nav className="flex items-center gap-2 md:gap-4">
           <NavLink to="/" end className={navLinkClass}>
             {t('header.home')}
           </NavLink>

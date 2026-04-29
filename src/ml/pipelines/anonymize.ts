@@ -289,7 +289,7 @@ export async function anonymize(
         applySolid(ctx, canvas, box, resolvedOpts.solidColor, resolvedOpts.padding, resolvedOpts.feather, resolvedOpts.maskShape, cW, cH);
         break;
       case 'emoji':
-        applyEmoji(ctx, canvas, box, resolvedOpts.emojis?.[i] || resolvedOpts.emoji, resolvedOpts.padding, resolvedOpts.feather, resolvedOpts.maskShape, cW, cH);
+        applyEmoji(ctx, canvas, box, resolvedOpts.emojis?.[i] || resolvedOpts.emoji, resolvedOpts.padding, 0, 'rect', cW, cH);
         break;
     }
   }

@@ -64,73 +64,41 @@
 > **Priority — maximum detection recall over speed.** Robust on group photos
 > (weddings, school classes, concerts, crowds).
 
-### Models (ensemble for max recall)
+### Models (5 detectors — single-model, interactive correction)
 
-- [x] SCRFD-10G-KPS integration (primary detector)
-- [x] RetinaFace-R50 integration (profiles, occlusion)
-- [x] YOLOv8-face integration (dense groups)
-- [x] YuNet integration (tiny faces 16×16+)
-- [x] Model registry metadata (size, quality, speed)
+- [x] SCRFD-10G-KPS (15.5 MB, quality, WASM-only)
+- [x] SCRFD-500M (2.4 MB, default, WebGPU) 
+- [x] YuNet 2023 (0.2 MB, lightweight, WebGPU)
+- [x] RetinaFace-MobileNet0.25 (1.7 MB, profiles/occlusion, WebGPU)
+- [x] BlazeFace (0.5 MB, ultra-fast, WebGPU)
+- [x] Model selector in wizard + runtime labels (GPU/CPU · size)
 
-### Detection pipeline (`thoroughDetect`)
+### Detection pipeline
 
-- [x] Multi-scale inference at 7 scales (512/768/1024/1280/1600/2048/2560)
-- [x] Test-Time Augmentation (horizontal flip)
-- [x] Tile-based detection (1024×1024, overlap 384) for large photos
-- [x] Weighted Box Fusion for ensemble result merging
-- [x] Soft-NMS as fallback for single-model mode
-- [x] Adaptive `smartDetect` strategy selector
-
-### Optional max-recall techniques
-
-- [x] Image pyramid with 0.83× step
-- [x] ROI refinement in dense regions (zoom-in re-detection)
-- [x] Body detection (YOLOv8-person) as a "possibly missed face" hint
-- [x] Landmark refinement to filter out false positives
+- [x] Single-model inference with tiling (overlap 64)
+- [x] NMS deduplication with configurable IoU threshold
+- [x] Face box parsing per model format (SCRFD stride vs pixel-space, etc.)
 
 ### UI and UX
 
 - [x] Two-step wizard (Detect → Apply effect)
-- [x] 5 presets: Fast / Standard / Thorough / Maximum / Paranoid
-- [x] Progress bar with stage, time and live face count
-- [x] "Stop and keep current results" button (AbortSignal)
-- [x] Live preview of boxes as they are detected
-- [x] Color-coded confidence (votes: 1=yellow, 2=blue, 3-4=green)
-- [x] Found-faces thumbnail grid for quick review
-- [x] Bulk operations (select all / by threshold, lasso selection)
-- [x] Canvas renderer (react-konva) for 100+ interactive boxes
-
-### Manual box correction
-
-- [x] Add new boxes (drag-to-create)
-- [x] Delete boxes (Delete / right click)
-- [x] Move and resize via handles
-- [x] Undo / Redo for box operations
+- [x] Interactive face overlay — drag, resize, delete, draw new boxes
+- [x] Confidence percentage label on each box
+- [x] Live preview of effects (PreviewCanvas)
+- [x] Before/after comparison slider (BeforeAfterSplit) when preview ON
+- [x] Compact controls: collapsible on mobile, full on desktop
+- [x] Mobile-responsive layout (compact toolbar, horizontal history)
+- [x] Touch support via Pointer Events
+- [x] Progress bar (stage + percentage, positioned top-center on mobile)
 
 ### Effect application
 
-- [x] Gaussian blur (with adaptive radius option)
-- [x] Pixelate (mosaic, with adaptive block size option)
-- [x] Solid color fill
-- [x] Emoji overlay
-- [x] Sticker (from bundled PNG set)
-- [x] Mask shapes: rectangle / ellipse / rounded
+- [x] 4 effects: Blur, Pixelate, Solid Fill, Emoji
+- [x] Mask shapes: rectangle / ellipse (oval default, disabled for emoji)
 - [x] Padding (expand area around face)
-- [x] Feather (soft mask edges)
-
-### Performance and memory
-
-- [x] Web Worker with AbortSignal support
-- [x] Release ONNX sessions between models
-- [x] Tensor pool for Float32Array reuse
-- [x] GC pauses between inference stages
-- [x] Persist intermediate results in IndexedDB
-
-### Tests
-
-- [x] Unit tests: WBF, IoU, NMS, box operations
-- [x] E2E (Playwright): fixtures with group photos
-- [x] Recall benchmarks: ≥95% on typical groups, ≥90% on WIDER Hard
+- [x] Feather with proper gradient mask (eroded shape + blur)
+- [x] Per-effect visibility: only relevant sliders shown
+- [x] Random emoji per face
 
 ## Future
 

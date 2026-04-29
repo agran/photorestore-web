@@ -1,42 +1,45 @@
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Wand2, User, Brush, Zap, EyeOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { useEditorStore } from '@/store/editorStore';
-import { useSettingsStore } from '@/store/settingsStore';
-import { toast } from '@/hooks/useToast';
-import { runPipeline, createDefaultMask, type PipelineType } from '@/ml/pipelineRunner';
-import { getModelsByPipeline, type ModelMeta } from '@/ml/modelRegistry';
+import type { PipelineType } from '@/ml/pipelineRunner';
 
-const upscaleModels = getModelsByPipeline('upscale');
+interface ToolPanelProps {
+  onAnonymize?: (modelId: string) => void;
+  onSelectTool?: (tool: PipelineType) => void;
+  compact?: boolean;
+}
 
-export default function ToolPanel({ onAnonymize }: { onAnonymize?: (modelId: string) => void }) {
+export default function ToolPanel({ onAnonymize, onSelectTool, compact }: ToolPanelProps) {
   const { t } = useTranslation();
-  const { currentImageUrl, activeJob } = useEditorStore();
+  const { activeJob } = useEditorStore();
   const isRunning = activeJob?.status === 'running';
-  const { tileSize, tileOverlap } = useSettingsStore();
-  const [upscaleModelId, setUpscaleModelId] = useState<string>(upscaleModels[0]?.id ?? '');
 
-  const handleTool = async (key: PipelineType, modelId?: ModelMeta['id']) => {
-    if (!currentImageUrl) {
-      toast({ title: t('editor.empty.title'), description: t('editor.empty.description') });
-      return;
-    }
-
-    const options: Record<string, unknown> =
-      key === 'inpaint' ? { maskCanvas: createDefaultMask(1, 1) } : { tileSize, tileOverlap };
-    if (key === 'upscale' && modelId) {
-      options.modelId = modelId;
-    }
-
-    try {
-      await runPipeline(key, options);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      toast({ title: t('errors.pipelineFailed'), description: message, variant: 'destructive' });
-    }
-  };
+  if (compact) {
+    const tools: { icon: React.ReactNode; label: string; action: () => void; disabled?: boolean }[] = [
+      { icon: <Zap className="h-4 w-4" />, label: t('editor.tools.upscaleShort'), action: () => onSelectTool?.('upscale') },
+      { icon: <User className="h-4 w-4" />, label: t('editor.tools.faceRestoreShort'), action: () => onSelectTool?.('faceRestore'), disabled: true },
+      { icon: <Brush className="h-4 w-4" />, label: t('editor.tools.inpaintShort'), action: () => onSelectTool?.('inpaint'), disabled: true },
+      { icon: <Wand2 className="h-4 w-4" />, label: t('editor.tools.denoiseShort'), action: () => onSelectTool?.('denoise'), disabled: true },
+      { icon: <EyeOff className="h-4 w-4" />, label: t('editor.tools.anonymizeShort'), action: () => onAnonymize?.('scrfd-500m') },
+    ];
+    return (
+      <div className="flex justify-center gap-0.5">
+        {tools.map((tool) => (
+          <button
+            key={tool.label}
+            className="flex flex-col items-center gap-0.5 rounded-md px-1 py-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:cursor-not-allowed min-w-0 flex-1 max-w-[64px]"
+            disabled={isRunning || tool.disabled}
+            onClick={tool.action}
+          >
+            {tool.icon}
+            <span className="text-[9px] leading-tight text-center">{tool.label}</span>
+          </button>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <Card className="h-full">
@@ -44,85 +47,56 @@ export default function ToolPanel({ onAnonymize }: { onAnonymize?: (modelId: str
         <CardTitle className="text-sm">{t('editor.tools.title')}</CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
-        {/* Upscale with model selector */}
-        <div className="flex flex-col gap-1">
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-            value={upscaleModelId}
-            onChange={(e) => setUpscaleModelId(e.target.value)}
-            disabled={isRunning}
-          >
-            {upscaleModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full justify-start gap-2"
-            disabled={isRunning}
-            onClick={() => {
-              void handleTool('upscale', upscaleModelId);
-            }}
-          >
-            <Zap className="h-4 w-4" />
-            {t('editor.tools.upscale')}
-          </Button>
-        </div>
-
-        {/* FaceRestore */}
         <Button
           variant="outline"
           size="sm"
           className="w-full justify-start gap-2"
           disabled={isRunning}
-          onClick={() => {
-            void handleTool('faceRestore');
-          }}
+          onClick={() => onSelectTool?.('upscale')}
+        >
+          <Zap className="h-4 w-4" />
+          {t('editor.tools.upscale')}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start gap-2"
+          disabled
+          onClick={() => onSelectTool?.('faceRestore')}
         >
           <User className="h-4 w-4" />
           {t('editor.tools.faceRestore')}
         </Button>
 
-        {/* Inpaint */}
         <Button
           variant="outline"
           size="sm"
           className="w-full justify-start gap-2"
-          disabled={isRunning}
-          onClick={() => {
-            void handleTool('inpaint');
-          }}
+          disabled
+          onClick={() => onSelectTool?.('inpaint')}
         >
           <Brush className="h-4 w-4" />
           {t('editor.tools.inpaint')}
         </Button>
 
-        {/* Denoise */}
         <Button
           variant="outline"
           size="sm"
           className="w-full justify-start gap-2"
-          disabled={isRunning}
-          onClick={() => {
-            void handleTool('denoise');
-          }}
+          disabled
+          onClick={() => onSelectTool?.('denoise')}
         >
           <Wand2 className="h-4 w-4" />
           {t('editor.tools.denoise')}
         </Button>
 
-        {/* Anonymize */}
         <Button
           variant="outline"
           size="sm"
           className="w-full justify-start gap-2"
           disabled={isRunning}
-          onClick={() => {
-            onAnonymize?.('scrfd-500m');
-          }}
+          onClick={() => onAnonymize?.('scrfd-500m')}
         >
           <EyeOff className="h-4 w-4" />
           {t('editor.tools.anonymize')}

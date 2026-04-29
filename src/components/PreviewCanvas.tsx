@@ -54,7 +54,7 @@ export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: Preview
             applySolid(ctx, canvas, box, solidColor, padding, feather, maskShape, imgWidth, imgHeight);
             break;
           case 'emoji':
-            applyEmoji(ctx, canvas, box, store.randomEmojis[i] || emojiInput || '😶', padding, feather, maskShape, imgWidth, imgHeight);
+            applyEmoji(ctx, canvas, box, store.randomEmojis[i] || emojiInput || '😶', padding, 0, 'rect', imgWidth, imgHeight);
             break;
         }
       }

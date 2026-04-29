@@ -14,11 +14,11 @@
 | `lsdir-dat`               | 4xLSDIR-DAT              | Апскейл         | MIT         | 62 МБ  | 1×3×256×256  | WASM (баг JSEP) |
 | `cugan-up4x`              | Real-CUGAN Up×4          | Апскейл         | MIT         | 2 МБ   | 1×3×64×64    | WebGPU ✅       |
 | `cugan-up4x-denoise`      | Real-CUGAN Up×4 Denoise  | Апскейл         | MIT         | 2 МБ   | 1×3×64×64    | WebGPU ✅       |
-| `scrfd-500m`              | SCRFD-500M               | Детекция лиц    | MIT         | 2.4 МБ | 1×3×640×640  | WebGPU ✅       |
-| `scrfd-10g`               | SCRFD-10G-KPS            | Детекция лиц    | Apache-2.0  | 15.5 МБ | 1×3×640×640  | WASM (баг JSEP) |
-| `yunet-2023`              | YuNet 2023               | Детекция лиц    | MIT         | 0.2 МБ | 1×3×640×640  | WebGPU ✅       |
-| `retinaface-mbn025`       | RetinaFace-MBN025        | Детекция лиц    | MIT         | 1.7 МБ | 1×3×640×640  | WebGPU ✅       |
-| `blazeface`               | BlazeFace                 | Детекция лиц    | Apache-2.0  | 0.5 МБ | 1×3×128×128  | WebGPU ✅       |
+| `scrfd-500m`              | SCRFD-500M               | Скрытие лиц    | MIT         | 2.4 МБ | 1×3×640×640  | WebGPU ✅       |
+| `scrfd-10g`               | SCRFD-10G-KPS            | Скрытие лиц    | Apache-2.0  | 15.5 МБ | 1×3×640×640  | WASM (баг JSEP) |
+| `yunet-2023`              | YuNet 2023               | Скрытие лиц    | MIT         | 0.2 МБ | 1×3×640×640  | WebGPU ✅       |
+| `retinaface-mbn025`       | RetinaFace-MobileNet0.25 | Скрытие лиц    | MIT         | 1.7 МБ | 1×3×640×640  | WebGPU ✅       |
+| `blazeface`               | BlazeFace                | Скрытие лиц    | Apache-2.0  | 0.5 МБ | 1×3×128×128  | WebGPU ✅       |
 | `gfpgan-v1.4`             | GFPGAN v1.4              | Реставрация лиц | Apache-2.0  | 325 МБ | 1×3×512×512  | —               |
 | `codeformer`              | CodeFormer               | Реставрация лиц | S-Lab       | 359 МБ | 1×3×512×512  | —               |
 | `lama`                    | LaMa                     | Закраска        | Apache-2.0  | 200 МБ | 1×4×512×512  | —               |
