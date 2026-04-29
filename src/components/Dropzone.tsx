@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
 
 const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32 MB
-const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500 MB
+const MAX_VIDEO_SIZE = 4 * 1024 * 1024 * 1024; // 4 GB
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 const ACCEPT_ATTR = [...ACCEPTED_IMAGE_TYPES, 'video/*'].join(',');
 

@@ -42,39 +42,49 @@
 
 > Extends the v0.6 Hide Faces pipeline to video. Same 4 effects,
 > same 5 detectors, but applied frame-by-frame with face tracking
-> and re-encoding into a video file.
-> **Entire pipeline runs in a WebWorker** — main thread handles only UI.
+> and re-encoding into an MP4 file.
 
 ### Architecture
 
 ```
-MP4/WebM → MP4Box demux → WebCodecs VideoDecoder → VideoFrame
-  → Detect (keyframes) → ByteTrack → Apply effect → WebCodecs VideoEncoder
-  → mp4-muxer remux → Output MP4/WebM (with audio passthrough)
+MP4/WebM → mediabunny demux → VideoSampleSink (decoded frames)
+  → Canvas API → Face detection (keyframes) → ByteTrack → Effect → Canvas
+  → VideoFrame → WebCodecs VideoEncoder (H.264) → EncodedVideoPacketSource
+  → mediabunny Output (MP4) + EncodedAudioPacketSource (audio passthrough)
 ```
-
-Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `OffscreenCanvas` for rendering, no `getImageData()` in the hot path.
 
 | Layer | Module | Purpose |
 |-------|--------|---------|
-| Demux | `MP4Box.js` | Split MP4 into video + audio tracks (`EncodedVideoChunk`) |
-| Decode | `WebCodecs VideoDecoder` | GPU-accelerated frame-accurate decode → `VideoFrame` |
-| Detect | reuse `anonymize.ts` pipeline | Full detection on keyframes; BlazeFace cheap verifier on every frame |
-| Track | `faceTracker.ts` | ByteTrack (two-stage IoU matching) + adaptive keyframe interval |
+| Demux | `mediabunny Input` | Split MP4/WebM into video + audio tracks |
+| Decode | `mediabunny VideoSampleSink` | Decoded `VideoSample` stream via WebCodecs |
+| Detect | reuse `anonymize.ts` ↔ `detectFaces()` | SCRFD-500M/10G face detection on keyframes (640×640 tiled) |
+| Pose | `poseEstimate.ts` (YOLOv8-pose) | 17 COCO keypoints for body tracking — estimate face when occluded (optional, v0.7.3) |
+| Track | `faceTracker.ts` | ByteTrack (three-stage IoU matching) + Kalman (8 states + anchors). Configurable `maxLost` |
 | Re-ID | `faceReid.ts` (ArcFace ONNX) | Re-identify faces after long occlusions (v0.7.4, optional) |
-| Effect | reuse `anonymizeEffects.ts` | Blur / Pixelate / Solid / Emoji per-face per-frame |
-| Encode | `WebCodecs VideoEncoder` | H.264 baseline primary, VP9 optional. `isConfigSupported()` for capability |
-| Mux | `mp4-muxer` | Combine encoded video + audio passthrough → MP4/WebM |
-| Audio | `AudioEncoder` (if re-encode needed) | Remux original audio without re-encode when container matches |
-| State | `videoAnonymizeStore.ts` | Per-frame face boxes, track IDs, processing progress |
-| Worker | `videoWorker.ts` | Entire pipeline (decode→track→effect→encode), `postMessage` + transferable `VideoFrame` |
+| Effect | reuse `anonymizeEffects.ts` (canvas) | Blur / Pixelate / Solid / Emoji per-face per-frame, drawn to canvas |
+| Encode | `WebCodecs VideoEncoder` | H.264 (`avc1.420028`), VP9 fallback. `isConfigSupported()` detect |
+| Mux | `mediabunny` (`Mp4OutputFormat` + `BufferTarget`) | Combine encoded video + audio passthrough → MP4 |
+| Audio | `mediabunny EncodedAudioPacketSource` | Remux original audio without re-encode |
+| State | `videoAnonymizeStore.ts` | File, effects, quality, body tracking toggle, progress, ETA, output blob |
+| Inference | `inferenceClient.ts` (shared worker singleton) | Centralized ORT session management, FIFO serialization for WebGPU run safety |
+
+**Pipeline runs on the main thread** (not a WebWorker). Canvas API + WebCodecs `VideoFrame` constructor in the hot loop. Mediabunny handles demux/mux.
+
+### Quality Modes
+
+| Mode | Detection interval | Pose interval | Speed | Face gaps |
+|------|-------------------|---------------|-------|-----------|
+| **Fast** (default) | adaptive 5–60 frames | every face-keyframe | 3–10× realtime | ≤2s uncovered on new faces |
+| **Accurate** | every frame (1) | every 5 face-keyframes | 1–3× realtime | none |
+
+Both modes support **Body tracking** — runs YOLOv8-pose alongside face detection on keyframes (throttled to every 5 face-keyframes in Accurate mode to avoid 30-FPS inference on an 82 MB model).
 
 ### Why not `<video>` + Canvas for decode
 
 - `<video>.currentTime` is async, imprecise (snaps to nearest keyframe), drops frames on long videos
 - `requestVideoFrameCallback` can't decode faster than real-time — 30s video takes ≥30s
 - `drawImage(video) → getImageData()` forces GPU→CPU readback, massive bottleneck
-- **Fix:** WebCodecs `VideoDecoder` — frame-accurate, faster than real-time, GPU-native
+- **Fix:** mediabunny `VideoSampleSink` — WebCodecs decoding, frame-accurate, faster than real-time
 
 ### Encoding Strategy
 
@@ -82,69 +92,173 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 |--------|------|------|
 | **WebCodecs H.264** | GPU-accelerated, universal (Chrome/Edge/Safari) | Firefox limited support |
 | **WebCodecs VP9** | Open codec, good compression | Not everywhere for encode |
-| **ffmpeg.wasm** | Cross-browser fallback | 30+ MB WASM, CPU-only, <2% users |
+| **MediaRecorder** | Cross-browser fallback | WebM only, no audio, slower |
 
-- **Primary:** H.264 baseline via WebCodecs (Chrome, Edge, Safari 17+)
-- **Fallback:** ffmpeg.wasm for very old browsers (<2%)
-- **Detection:** `VideoEncoder.isConfigSupported({ codec: 'avc1.42001E' })` — not browser sniffing
-- **Container:** MP4 for H.264, WebM for VP9
+- **Primary:** H.264 via WebCodecs → MP4 (Chrome, Edge, Safari 17+)
+- **Fallback:** MediaRecorder VP9 → WebM (no audio passthrough)
+- **Detection:** `VideoEncoder.isConfigSupported({ codec: 'avc1.420028' })` — not browser sniffing
 
 ### Face Tracking — ByteTrack (v0.7.1)
 
-- **ByteTrack**: three-stage association — Stage 1 (high-conf × strict cost), Stage 1.5 (unmatched high-conf rescue with adaptive threshold), Stage 2 (low-conf × wide window). ~250 lines, no ML.
-- **Keyframe interval**: adaptive — 15→60 frames when tracks confident, 5 frames when any track shaky
-- **Kalman filter**: 8 states (x, y, w, h, dx, dy, dw, dh) + anchor positions (ax, ay, aw, ah) for precise per-frame velocity. dw/dh predict size change between keyframes
-- **Velocity**: computed as `(newPos − anchor) / elapsed` — where anchor = position at last update, elapsed = frames since then. Eliminates error accumulation from dt·detectionInterval
-- **Re-association**: new track creation checks nearby recently-lost tracks (lost≤5, cost<2.5) — reuses old ID preserving velocity vector
-- **Cost function**: 1−IoU for overlapping boxes, 1+centerDist/diag for disjoint ones. Adaptive Stage 1.5 threshold: `1.1 + lostFrames*0.06` — wider window for longer-lost tracks
-- **Velocity decay**: only on truly lost tracks (lostCount>0), not during normal predict frames. When lost: VEL_DECAY_POS=0.95, VEL_DECAY_SIZE=0.9 per frame
-- **EMA smoothing**: α=0.55 on update, α=1.0 on predict (no lag, Kalman already smoothed via velocity EMA)
-- **Temporal mask smoothing**: low-pass filter (EMA α≈0.55) on smoothBox before rasterize — eliminates mask flickering
+- **ByteTrack**: three-stage association — Stage 1 (high-conf × strict cost 0.65), Stage 1.5 (unmatched high-conf rescue with per-track adaptive threshold `1.1 + lostFrames×0.06`), Stage 2 (low-conf × wide window 1.5). ~300 lines, no ML.
+- **Keyframe interval**: adaptive — 15→60 frames when tracks confident, 5→30 frames when any track shaky. Accurate mode pins to 1.
+- **Kalman filter**: 8 states (x, y, w, h, dx, dy, dw, dh) + anchor positions (ax, ay, aw, ah, dt) for precise per-frame velocity. dw/dh predict size change between keyframes.
+- **Velocity**: computed as `(newPos − anchor) / elapsed` — where anchor = position at last `kalmanUpdate`, elapsed = frames since then. Eliminates error accumulation from dt·detectionInterval.
+- **Re-association**: new track creation checks nearby recently-lost tracks (lost≤5, cost<2.5) — reuses old ID preserving velocity vector, resets smoothBoxes to prevent jump.
+- **Cost function**: 1−IoU for overlapping boxes, 1+centerDist/diag for disjoint ones.
+- **Velocity decay**: only on truly lost tracks (lostCount>0), not during normal predict frames. When lost: VEL_DECAY_POS=0.7, VEL_DECAY_SIZE=0.7 per frame (~3.3× total drift cap). Aggressive decay prevents predicted boxes from "flying" into empty space during camera pans
+- **EMA smoothing**: α=0.55 on update, α=1.0 on predict (no lag, Kalman already smoothed via velocity EMA).
+- **maxLost**: default 40 frames (~1.3s at 30fps). Extended to 300 (~10s) when body tracking is enabled — pose-derived face position keeps the mask on during occlusion.
 
-### Scale-Invariant Effects for Video
+### Body Tracking — YOLOv8-pose (v0.7.3)
 
-- **Pixelate kernel / Blur radius**: tied to bbox size (`kernel = bbox.width * 0.1`), not fixed pixels — avoids visual "breathing" as face moves closer/further
-- **Feather**: proportional to bbox size, not absolute pixels
-- **Emoji font size**: `bbox.width * 0.6` — adapts to face size per frame
+Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
+
+- **Model:** YOLOv8-pose (`yolo26m-pose.onnx`, 82 MB, AGPL-3.0) — 17 COCO keypoints (nose, eyes, shoulders, elbows, wrists, hips, knees, ankles)
+- **Input:** 576×704 letterbox, RGB normalized to [0,1], NCHW tensor
+- **Output:** `[1, 56, 8400]` — end2end decoded (cx,cy,w,h,conf + 17×3 keypoints in input pixel space). NMS with IoU=0.5
+- **When it runs:** on face-detection keyframes, parallel to `detectFaces()` via `Promise.all()`. Throttled in Accurate mode (every 5 face-keyframes — bodies don't move frame-to-frame)
+- **Face-to-body assignment:** greedy 1-to-1 min-distance matching per keyframe — prevents two close-standing people from both attaching to the same body
+- **Synthetic detection injection:** fresh poses seed new FaceBox detections for bodies whose nose isn't covered by any real face detection. Partially-visible faces (edge of frame, occlusion) get masked immediately — no waiting for the next detection keyframe
+- **Lost face override:** when `framesSinceUpdate > 0`, `faceBoxFromPose()` estimates face position from nose/eyes and overrides the Kalman-predicted box
+- **Weak detection override:** also triggers when body-estimated face area exceeds tracker area by 1.5× — catches the case where the detector "shrinks" on a rotated face but keeps matching
+- **Phantom mask suppression:** tracks with `framesSinceUpdate > 1` AND no body pose backing are skipped — prevents Kalman-extrapolated masks from "flying" through empty space when the camera pans away from the original subject
+- **EMA smoothing:** body-derived face box is EMA-smoothed across frames (α=0.4) to eliminate pose-keypoint jitter
+- **Stable effect width:** per-track EMA of observed face width — grows instantly, decays at 0.99/frame (~70-frame half-life). Prevents pixelate/blur kernel from shrinking when the detector reports a smaller box during head rotation
+- **`faceBoxFromPose` size cascade:** eye distance × 3.0 → ear distance × 1.6 → shoulder width / 3.0 → single-eye-to-nose × 6 → single-ear-to-nose × 2 → shoulder-to-nose / 1.6 → body bbox / 3.5 → fallback. Single-side fallbacks handle partial/edge views where only one side of the body is visible
+- **`faceBoxFromPose` size cascade:** eye distance × 3.0 → ear distance × 1.6 → shoulder width / 3.0 → single-eye-to-nose × 6 → single-ear-to-nose × 2 → shoulder-to-nose / 1.6 → body bbox / 3.5 → fallback. Single-side fallbacks handle partial/edge views where only one side of the body is visible
+
+### Scale-Invariant Effects
+
+- **Effect strength scaling:** super-linear `scaleFactor = (faceWidth / 100)^1.3` — bigger faces get disproportionately stronger blur/pixelation. Face=200px → 2.46× strength (not 2× linear)
+- **Per-track stable width:** EMA with instant-grow / slow-decay — kernel doesn't jitter when the detector bbox fluctuates due to head rotation
+- **Padding & feather:** linearly scaled with face width (`pad = userValue × faceWidth/100`)
+- **Emoji font size:** `faceWidth × 0.6` — adapts to face size per frame
 
 ### Audio Passthrough (v0.7.2)
 
 - **Demux:** `mediabunny` splits MP4/WebM into video + audio tracks
-- **Remux:** `mediabunny` (npm, ~400KB) — audio passthrough without re-encode
-- **Caveat:** container must match (MP4→MP4 for AAC, WebM→WebM for Opus/Vorbis). If crossing containers (MP4→WebM), re-encode audio via `AudioEncoder`
+- **Remux:** `mediabunny` `EncodedAudioPacketSource` — audio passthrough without re-encode
+- **Pre-roll handling:** negative-timestamp "priming" packets (AAC encoder delay) are detected and skipped — the MP4 muxer rejects them
+- **Graceful degradation:** audio passthrough is wrapped in try/catch — if it fails, output is video-only with a console warning, instead of crashing the entire V2 pipeline
+- **Metadata:** first packet carries `{ decoderConfig }` from `audioTrack.getDecoderConfig()`. Null decoder config is handled with `console.warn` + skip
 - **No audio track?** Skip entirely, output video-only
+
+### Progress & ETA
+
+- **Timestamp-based:** progress = `sample.timestamp / videoDuration` — accurate regardless of variable FPS or encoder backpressure
+- **Incremental post-processing updates:** encoder.flush (96%), video passthrough (97%), audio passthrough (98%), finalize (99%)
+- **Fallback offset:** if V2 fails, fallback progress continues from V2's last value (no reset to 0%)
+- **ETA:** `remainingDuration / progressRate` — based on temporal progress, not frame count
 
 ### Memory & Backpressure (implemented)
 
-- **`VideoFrame.close()`** per frame + **`VideoSample.close()`** in try/finally — no GPU memory leaks
+- **`VideoSample.close()`** in try/finally — no GPU memory leaks
 - **Streaming pipeline:** decode → track → effect → encode — one frame in flight, EncodedVideoChunks buffered for muxing
-- **Encoder flush:** `encoder.flush()` after all frames before finalize
-- **Cancel:** `AbortController` + `signal.aborted` checks in loops
+- **Encoder flush:** `encoder.flush()` before finalize collects remaining encoded chunks
+- **Cancel:** `AbortController` + `signal.aborted` checks in all loops
+- **Body tracking GC:** `lastBodyBoxes` and `trackEffectWidths` maps cleaned up when tracks retire
 
 ### UI Flow
 
-1. Upload video → first frame + duration/resolution/metadata
-2. Detect faces on frame 0 → overlay (reuse FaceOverlay)
-3. Configure effects (reuse AnonymizeWizard effect panel)
-4. "Process" → progress: frames done / total, ETA (EMA over last 30 frames), cancel
-5. Preview: render every N-th finished frame in `OffscreenCanvas` → post to main thread (not realtime)
-6. "Download" → output video (same resolution/fps as input, audio passthrough)
-7. Before/After: frame comparison or side-by-side video players
+1. Drop video on Home page → navigate to Editor with wizard open (or drop on Editor directly)
+2. Configure effects (reuse AnonymizeWizard effect panel) + quality + body tracking toggle
+3. "Process" → progress bar with percentage, ETA, cancel button
+4. "Download" → output MP4 (or WebM for fallback). Extension matched to actual format
+5. "Back to settings" — adjust params and re-process without re-uploading the video
 
-### Milestones (reordered after architecture review)
+### Inference Worker Infrastructure
 
-- [x] v0.7.0: WebCodecs decode/encode + per-frame detection + WebWorker pipeline (proof-of-concept, short clips <10s, no tracking)
+- **Centralized singleton:** `inferenceClient.ts` — one shared worker for face detection + pose estimation. Replaces per-pipeline worker management.
+- **WebGPU run serialization:** FIFO queue in `inference.worker.ts` — prevents "Session mismatch" errors when face detection and pose estimation run concurrently on the same ORT WebGPU device
+- **Session reuse:** same model URL → same session. Both model loading and session creation are lazy on first inference.
+
+### Milestones
+
+- [x] v0.7.0: WebCodecs decode/encode + per-frame detection (proof-of-concept, short clips <10s, no tracking)
 - [x] v0.7.1: ByteTrack + adaptive keyframes + temporal mask smoothing + scale-invariant effects
-- [x] v0.7.2: Audio passthrough (MP4Box + mp4-muxer), ETA, cancel, long video support
-- [ ] v0.7.3: UI — video scrubber, keyframe editor, preview during processing
-- [ ] v0.7.4: [optional] ArcFace re-ID for long occlusions (face descriptor ONNX)
+- [x] v0.7.2: Audio passthrough (mediabunny), ETA, cancel, progress improvements, quality toggle (accurate/fast)
+- [x] v0.7.3: Body tracking (YOLOv8-pose), stable effect width, audio hardening, edit-again UX, direct video drop flow, inference worker serializer
+- [ ] v0.7.4: UI — video scrubber, keyframe editor, preview during processing
+- [ ] v0.7.5: [optional] ArcFace re-ID for long occlusions (face descriptor ONNX)
 
 ### Dependencies
 
-- `mediabunny` — MP4/WebM demux + mux with audio passthrough (npm, ~400KB)
-- `@ffmpeg/ffmpeg` / `@ffmpeg/util` — fallback encode for very old browsers
-- `arcface-mbn.onnx` — only for v0.7.4 re-ID
-- No other new runtime deps — Canvas API (`OffscreenCanvas`, `ImageBitmap`) + existing ORT
+- `mediabunny` (1.42.0) — MP4/WebM demux + mux with audio passthrough (npm, ~400KB)
+- `onnxruntime-web` (1.26.0-dev) — face detection + pose estimation
+- No other new runtime deps — Canvas API + existing ORT
+
+---
+
+## v0.3 — Face Restoration
+
+- [ ] GFPGAN v1.4 integration
+- [ ] CodeFormer integration
+- [ ] Face detection pipeline
+- [ ] Face crop/align/paste-back
+
+## v0.4 — Inpainting
+
+- [ ] LaMa integration
+- [ ] Mask editor (brush tool)
+- [ ] Mask refinement
+
+## v0.5 — Denoising
+
+- [ ] DRUNet integration
+- [ ] DRUNet Deblock integration (denoise + JPEG artifact removal)
+- [ ] Noise level estimation
+
+## v0.6 — Face Anonymization (Hide Faces)
+
+> Two-step workflow: automatic detection of all faces with manual correction,
+> then applying an effect (blur / pixelate / solid / emoji / sticker).
+> **Priority — maximum detection recall over speed.** Robust on group photos
+> (weddings, school classes, concerts, crowds).
+
+### Models (5 detectors — single-model, interactive correction)
+
+- [x] SCRFD-10G-KPS (15.5 MB, quality, WASM-only)
+- [x] SCRFD-500M (2.4 MB, default, WebGPU) 
+- [x] YuNet 2023 (0.2 MB, lightweight, WebGPU)
+- [x] RetinaFace-MobileNet0.25 (1.7 MB, profiles/occlusion, WebGPU)
+- [x] BlazeFace (0.5 MB, ultra-fast, WebGPU)
+- [x] Model selector in wizard + runtime labels (GPU/CPU · size)
+
+### Detection pipeline
+
+- [x] Single-model inference with tiling (overlap 64)
+- [x] NMS deduplication with configurable IoU threshold
+- [x] Face box parsing per model format (SCRFD stride vs pixel-space, etc.)
+
+### UI and UX
+
+- [x] Two-step wizard (Detect → Apply effect)
+- [x] Interactive face overlay — drag, resize, delete, draw new boxes
+- [x] Confidence percentage label on each box
+- [x] Live preview of effects (PreviewCanvas)
+- [x] Before/after comparison slider (BeforeAfterSplit) when preview ON
+- [x] Compact controls: collapsible on mobile, full on desktop
+- [x] Mobile-responsive layout (compact toolbar, horizontal history)
+- [x] Touch support via Pointer Events
+- [x] Progress bar (stage + percentage, positioned top-center on mobile)
+
+### Effect application
+
+- [x] 4 effects: Blur, Pixelate, Solid Fill, Emoji
+- [x] Mask shapes: rectangle / ellipse (oval default, disabled for emoji)
+- [x] Padding (expand area around face)
+- [x] Feather with proper gradient mask (eroded shape + blur)
+- [x] Per-effect visibility: only relevant sliders shown
+- [x] Random emoji per face
+
+## Future
+
+- [ ] Batch processing
+- [ ] EXIF preservation
+- [ ] Metadata stripping (for privacy after anonymization)
+- [ ] PWA offline support
+- [ ] WebCodecs for faster decode/encode
 
 ---
 

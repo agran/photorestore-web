@@ -317,6 +317,31 @@ async function anonymizeVideoV2(
           runPose ? estimatePoses(detectCanvas).catch(() => null) : Promise.resolve(null),
         ]);
 
+        // Inject pose-only synthetic detections so partial/edge faces (where
+        // the face detector misses but the pose detector still sees the body)
+        // get masked from the very first frame they enter. Only inject from
+        // FRESH poses — stale cachedPoses would create phantom tracks at old
+        // positions when the camera pans.
+        const posesForInject = runPose ? posesResult : null;
+        if (bodyTracking && posesForInject) {
+          for (const pose of posesForInject) {
+            if (pose.nose.score < 0.3) continue;
+            // Skip if any real detection already covers this pose's nose
+            const noseCovered = detections.some(d =>
+              pose.nose.x >= d.x && pose.nose.x <= d.x + d.width &&
+              pose.nose.y >= d.y && pose.nose.y <= d.y + d.height
+            );
+            if (noseCovered) continue;
+            const synth = faceBoxFromPose(pose, { width: 0, height: 0 }, cW, cH);
+            if (!synth) continue;
+            detections.push({
+              x: synth.x, y: synth.y,
+              width: synth.width, height: synth.height,
+              confidence: 0.6, // synthetic — high enough to seed a track
+            });
+          }
+        }
+
         // Always call update() — even on empty detections, so framesSinceUpdate
         // increments and the body-tracking override can take over.
         trackedFaces = tracker.update(detections, 0.5, cW, cH);
@@ -353,6 +378,16 @@ async function anonymizeVideoV2(
         for (let i = 0; i < trackedFaces.length; i++) {
           const tf = trackedFaces[i];
           aliveTrackIds.add(tf.trackId);
+
+          // Suppress the mask for tracks that look like phantoms: face has
+          // been unmatched for several frames AND no body pose backs them up.
+          // Without this guard the predicted bbox keeps moving (Kalman extra-
+          // polation) and the mask "flies" through empty parts of the frame
+          // when the camera pans away from the original subject.
+          if (bodyTracking && tf.framesSinceUpdate > 1 && !trackBodyMap.has(tf.trackId)) {
+            continue;
+          }
+
           let faceBox: FaceBox = { x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1 };
 
           // Body tracking override. Triggers either when the face track is
@@ -648,6 +683,26 @@ async function anonymizeVideoFallback(
         runPose ? estimatePoses(frameCanvas).catch(() => null) : Promise.resolve(null),
       ]);
 
+      // See V2: inject synthetic detections from FRESH poses only.
+      const posesForInject = runPose ? posesResult : null;
+      if (bodyTracking && posesForInject) {
+        for (const pose of posesForInject) {
+          if (pose.nose.score < 0.3) continue;
+          const noseCovered = detections.some(d =>
+            pose.nose.x >= d.x && pose.nose.x <= d.x + d.width &&
+            pose.nose.y >= d.y && pose.nose.y <= d.y + d.height
+          );
+          if (noseCovered) continue;
+          const synth = faceBoxFromPose(pose, { width: 0, height: 0 }, cW, cH);
+          if (!synth) continue;
+          detections.push({
+            x: synth.x, y: synth.y,
+            width: synth.width, height: synth.height,
+            confidence: 0.6,
+          });
+        }
+      }
+
       // See V2: always update() so empty keyframes increment framesSinceUpdate.
       trackedFaces = tracker.update(detections, 0.5, cW, cH);
 
@@ -681,6 +736,12 @@ async function anonymizeVideoFallback(
       for (let i = 0; i < trackedFaces.length; i++) {
         const tf = trackedFaces[i];
         aliveTrackIds.add(tf.trackId);
+
+        // Phantom-mask guard — see V2 main loop comment.
+        if (bodyTracking && tf.framesSinceUpdate > 1 && !trackBodyMap.has(tf.trackId)) {
+          continue;
+        }
+
         let smoothBox: FaceBox = { x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1 };
 
         if (bodyTracking && cachedPoses) {

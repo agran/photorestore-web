@@ -77,8 +77,12 @@ function matchByCost(
 
 const PROCESS_NOISE_POS = 0.02; // position noise per frame²
 const MEASUREMENT_NOISE = 0.1;
-const VEL_DECAY_LOST = 0.95; // position velocity decay when truly lost
-const VEL_DECAY_SIZE_LOST = 0.9;
+// Lost-track velocity decay. Aggressive (0.7 per frame, ~3.3× total drift cap)
+// because high decay keeps predicted positions from sliding off into empty
+// space when the camera pans and a person leaves the frame. With slower decay
+// (e.g. 0.95 → 12×+ drift cap), masks visibly "fly" away from people.
+const VEL_DECAY_LOST = 0.7;
+const VEL_DECAY_SIZE_LOST = 0.7;
 // No decay during normal predict — velocity is per-frame and computed from anchor / elapsed,
 // so it's well-calibrated. Decay would only introduce systematic lag.
 const ALPHA_VEL = 0.6; // EMA for position velocity

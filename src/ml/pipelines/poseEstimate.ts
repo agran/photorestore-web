@@ -277,17 +277,23 @@ export async function estimatePoses(canvas: HTMLCanvasElement): Promise<PoseEsti
 }
 
 /**
- * Estimate a face bounding box from pose keypoints. Used when the face track
- * is lost (or has shrunk) and we want to keep a mask over the head region.
+ * Estimate a face bounding box from pose keypoints. Used both as a rescue
+ * when the face track is lost AND to seed brand-new tracks when the face
+ * detector misses partial/edge faces.
  *
- * Size cascade — picks the most reliable visible reference:
- *   eye distance × 3.0    (≈ face width; eye-to-eye is ~38% of face width)
- *   ear distance × 1.6    (ears bracket the head, slight margin)
- *   shoulder width / 3.0  (adult shoulder-to-face-width ratio)
- *   fallbackBox           (last-known face box from the tracker)
+ * Size cascade (picks the most reliable visible reference, falling all the
+ * way through to single-side keypoints so a person at the frame edge with
+ * only the left side visible still gets a usable estimate):
+ *   eye distance × 3.0
+ *   ear distance × 1.6
+ *   shoulder width / 3.0
+ *   |single_eye.x − nose.x| × 6      (eye-to-nose ≈ ⅙ face width)
+ *   |single_ear.x − nose.x| × 2      (ear-to-nose ≈ ½ face width)
+ *   |single_shoulder.y − nose.y| / 1.6
+ *   pose body bbox width / 3.5
+ *   fallbackBox.width
  *
- * The center is the nose when visible, otherwise eye/ear midpoint.
- * Returns null only if there is no usable horizontal anchor.
+ * Returns null only if there is no usable horizontal anchor at all.
  */
 export function faceBoxFromPose(
   pose: PoseEstimate,
@@ -296,45 +302,77 @@ export function faceBoxFromPose(
   frameH: number,
 ): { x: number; y: number; width: number; height: number } | null {
   const { nose, leftEye, rightEye, leftEar, rightEar, leftShoulder, rightShoulder } = pose;
-  const KP_THRESH = 0.3;
+  const KP = 0.3;
   const dist = (a: PoseKeypoint, b: PoseKeypoint) =>
     Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  const noseOk = nose.score > KP;
 
   // ---- estimate face WIDTH ----
   let faceW = 0;
-  if (leftEye.score > KP_THRESH && rightEye.score > KP_THRESH) {
+  if (leftEye.score > KP && rightEye.score > KP) {
     faceW = dist(leftEye, rightEye) * 3.0;
   }
-  if (faceW < 16 && leftEar.score > KP_THRESH && rightEar.score > KP_THRESH) {
+  if (faceW < 16 && leftEar.score > KP && rightEar.score > KP) {
     faceW = dist(leftEar, rightEar) * 1.6;
   }
-  if (faceW < 16 && leftShoulder.score > KP_THRESH && rightShoulder.score > KP_THRESH) {
+  if (faceW < 16 && leftShoulder.score > KP && rightShoulder.score > KP) {
     faceW = dist(leftShoulder, rightShoulder) / 3.0;
+  }
+  // ---- single-side fallbacks (partial/edge view) ----
+  if (faceW < 16 && noseOk) {
+    if (leftEye.score > KP) faceW = Math.abs(leftEye.x - nose.x) * 6;
+    else if (rightEye.score > KP) faceW = Math.abs(rightEye.x - nose.x) * 6;
+  }
+  if (faceW < 16 && noseOk) {
+    if (leftEar.score > KP) faceW = Math.abs(leftEar.x - nose.x) * 2;
+    else if (rightEar.score > KP) faceW = Math.abs(rightEar.x - nose.x) * 2;
+  }
+  if (faceW < 16 && noseOk) {
+    if (leftShoulder.score > KP) faceW = Math.abs(leftShoulder.y - nose.y) / 1.6;
+    else if (rightShoulder.score > KP) faceW = Math.abs(rightShoulder.y - nose.y) / 1.6;
+  }
+  if (faceW < 16 && pose.bbox.width > 0) {
+    faceW = pose.bbox.width / 3.5;
   }
   if (faceW < 16) {
     faceW = fallbackBox.width;
   }
-  // Never let it shrink below the prior face track — that's the whole point.
-  faceW = Math.max(faceW, fallbackBox.width * 0.9);
+  // Don't allow shrinkage below the prior known size — but only if there
+  // *is* a prior known size (skip for a synthetic seed).
+  if (fallbackBox.width > 0) {
+    faceW = Math.max(faceW, fallbackBox.width * 0.9);
+  }
+  if (faceW < 8) return null;
 
   let faceH = faceW * 1.35;
 
   // ---- estimate face CENTER ----
   let cx: number;
   let cy: number;
-  if (leftEye.score > KP_THRESH && rightEye.score > KP_THRESH) {
+  if (leftEye.score > KP && rightEye.score > KP) {
     cx = (leftEye.x + rightEye.x) / 2;
-    cy = (leftEye.y + rightEye.y) / 2 + faceH * 0.05; // eyes sit slightly above center
-  } else if (leftEar.score > KP_THRESH && rightEar.score > KP_THRESH) {
+    cy = (leftEye.y + rightEye.y) / 2 + faceH * 0.05;
+  } else if (leftEar.score > KP && rightEar.score > KP) {
     cx = (leftEar.x + rightEar.x) / 2;
     cy = (leftEar.y + rightEar.y) / 2;
-  } else if (nose.score > KP_THRESH) {
+  } else if (noseOk && (leftEye.score > KP || rightEye.score > KP)) {
+    const eye = leftEye.score > KP ? leftEye : rightEye;
+    cx = (nose.x + eye.x) / 2;
+    cy = (nose.y + eye.y) / 2 + faceH * 0.05;
+  } else if (noseOk && (leftEar.score > KP || rightEar.score > KP)) {
+    const ear = leftEar.score > KP ? leftEar : rightEar;
+    cx = (nose.x + ear.x) / 2;
+    cy = (nose.y + ear.y) / 2;
+  } else if (noseOk) {
     cx = nose.x;
-    cy = nose.y - faceH * 0.05; // nose is ~55% from top of head
-  } else if (leftShoulder.score > KP_THRESH && rightShoulder.score > KP_THRESH) {
-    // No head keypoints — fall back to head-above-shoulders heuristic.
+    cy = nose.y - faceH * 0.05;
+  } else if (leftShoulder.score > KP && rightShoulder.score > KP) {
     cx = (leftShoulder.x + rightShoulder.x) / 2;
     cy = (leftShoulder.y + rightShoulder.y) / 2 - faceH * 1.1;
+  } else if (leftShoulder.score > KP || rightShoulder.score > KP) {
+    const sh = leftShoulder.score > KP ? leftShoulder : rightShoulder;
+    cx = sh.x;
+    cy = sh.y - faceH * 1.1;
   } else {
     return null;
   }
