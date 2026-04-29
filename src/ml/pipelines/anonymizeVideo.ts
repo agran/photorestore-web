@@ -90,11 +90,23 @@ export async function anonymizeVideo(
   file: File,
   options: VideoAnonymizeOptions,
 ): Promise<Blob> {
+  // Ensure onProgress only increases (no regression on fallback)
+  let lastProgress = 0;
+  const monotonicProgress = (p: number) => {
+    if (p > lastProgress) {
+      lastProgress = p;
+      options.onProgress?.(p);
+    }
+  };
+
+  const opts = { ...options, onProgress: monotonicProgress };
+
   try {
-    return await anonymizeVideoV2(file, options);
+    return await anonymizeVideoV2(file, opts);
   } catch (err) {
     console.warn('[anonymizeVideo] V2 failed, using fallback:', err);
-    return anonymizeVideoFallback(file, options);
+    lastProgress = 0; // reset for fallback to start clean
+    return anonymizeVideoFallback(file, opts);
   }
 }
 
@@ -129,7 +141,7 @@ async function anonymizeVideoV2(
   processCanvas.height = cH;
   const processCtx = processCanvas.getContext('2d')!;
 
-  // 2. Setup output with CanvasSource for auto-encoding
+  // 2. Setup output — add ALL tracks before starting
   const output = new Output({
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target: new BufferTarget(),
@@ -140,9 +152,19 @@ async function anonymizeVideoV2(
     bitrate: 5_000_000,
   });
   output.addVideoTrack(canvasSource);
+
+  let audioSource: EncodedAudioPacketSource | null = null;
+  if (audioTrack) {
+    const audioCodec = await audioTrack.getCodec() as AudioCodec;
+    if (audioCodec) {
+      audioSource = new EncodedAudioPacketSource(audioCodec);
+      output.addAudioTrack(audioSource);
+    }
+  }
+
   await output.start();
 
-  // 3. Stream video frames
+  // 3. Stream video frames (in parallel with audio if desired)
   const videoSink = new VideoSampleSink(videoTrack);
   const tracker = new FaceTracker();
   let frameIndex = 0;
@@ -233,19 +255,14 @@ async function anonymizeVideoV2(
 
   canvasSource.close();
 
-  // 4. Audio passthrough
-  if (audioTrack) {
-    const audioCodec = await audioTrack.getCodec() as AudioCodec;
-    if (audioCodec) {
-      const audioSource = new EncodedAudioPacketSource(audioCodec);
-      output.addAudioTrack(audioSource);
-      const audioSink = new EncodedPacketSink(audioTrack);
-      for await (const packet of audioSink.packets()) {
-        if (signal?.aborted) break;
-        await audioSource.add(packet);
-      }
-      audioSource.close();
+  // 4. Audio passthrough (track already added to output before start)
+  if (audioSource) {
+    const audioSink = new EncodedPacketSink(audioTrack!);
+    for await (const packet of audioSink.packets()) {
+      if (signal?.aborted) break;
+      await audioSource.add(packet);
     }
+    audioSource.close();
   }
 
   onProgress?.(99);
