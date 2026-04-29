@@ -178,7 +178,7 @@ async function anonymizeVideoV2(
   let sampleResult = await sampleIterator.next();
 
   while (!sampleResult.done) {
-    const sample = sampleResult.value!;
+    const sample = sampleResult.value;
 
     try {
       if (signal?.aborted) break;
@@ -257,10 +257,15 @@ async function anonymizeVideoV2(
 
   // 4. Audio passthrough (track already added to output before start)
   if (audioSource) {
+    const decoderConfig = await audioTrack!.getDecoderConfig();
+    const audioMetadata = decoderConfig ? { decoderConfig } : undefined;
+
     const audioSink = new EncodedPacketSink(audioTrack!);
+    let isFirstPacket = true;
     for await (const packet of audioSink.packets()) {
       if (signal?.aborted) break;
-      await audioSource.add(packet);
+      await audioSource.add(packet, isFirstPacket ? audioMetadata : undefined);
+      isFirstPacket = false;
     }
     audioSource.close();
   }
