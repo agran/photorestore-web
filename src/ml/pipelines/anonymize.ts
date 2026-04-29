@@ -1,7 +1,7 @@
 import * as Comlink from 'comlink';
-import type { InferenceWorkerApi } from '@/workers/inference.worker';
 import { getModel } from '@/ml/modelRegistry';
 import { loadModel, isModelCached } from '@/ml/modelLoader';
+import { getInferenceWorker } from '@/ml/inferenceClient';
 import {
   prepareScrfdInput,
   prepareRawInput,
@@ -39,19 +39,6 @@ export interface AnonymizeResult {
   canvas: HTMLCanvasElement;
   faces: FaceBox[];
   elapsedMs: number;
-}
-
-let worker: Worker | null = null;
-let workerApi: Comlink.Remote<InferenceWorkerApi> | null = null;
-
-function getWorker(): Comlink.Remote<InferenceWorkerApi> {
-  if (!worker) {
-    worker = new Worker(new URL('../../workers/inference.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    workerApi = Comlink.wrap<InferenceWorkerApi>(worker);
-  }
-  return workerApi!;
 }
 
 function padCanvas(canvas: HTMLCanvasElement, targetW: number, targetH: number): HTMLCanvasElement {
@@ -163,7 +150,7 @@ export async function detectFaces(
   const modelBuffer = await loadModel(model.url);
   onProgress?.(10);
 
-  const api = getWorker();
+  const api = getInferenceWorker();
   const preferredBackend = model.forceWasm ? 'wasm' : 'webgpu';
   const backend = await api.initSession(
     Comlink.transfer(modelBuffer, [modelBuffer]),

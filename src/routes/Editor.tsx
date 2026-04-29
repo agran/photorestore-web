@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Download, Play, X, Film } from 'lucide-react';
+import { Clock, Download, Play, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Dropzone from '@/components/Dropzone';
@@ -27,11 +27,20 @@ export default function Editor() {
   const { currentImageUrl, originalImageUrl, setImage, pushHistory } = useEditorStore();
   const { history, restore } = useImageHistory();
   const { reset: resetAnonymize, setModelId } = useAnonymizeStore();
-  const { reset: resetVideoAnonymize } = useVideoAnonymizeStore();
+  const { reset: resetVideoAnonymize, loadFile: loadVideoFile, step: videoStep } = useVideoAnonymizeStore();
   const { tileSize, tileOverlap } = useSettingsStore();
   const upscaleModels = getModelsByPipeline('upscale');
   const [showWizard, setShowWizard] = useState(false);
-  const [showVideoWizard, setShowVideoWizard] = useState(false);
+  // If a user lands on /editor with a video already loaded into the store
+  // (e.g. dropped on Home), open the wizard immediately — no flash of the
+  // empty-state UI.
+  const [showVideoWizard, setShowVideoWizard] = useState(
+    () => useVideoAnonymizeStore.getState().step !== 'idle',
+  );
+
+  useEffect(() => {
+    if (videoStep !== 'idle') setShowVideoWizard(true);
+  }, [videoStep]);
   const [activeTool, setActiveTool] = useState<PipelineType | null>(null);
   const [upscaleModelId, setUpscaleModelId] = useState(upscaleModels[0]?.id ?? '');
 
@@ -65,6 +74,18 @@ export default function Editor() {
   };
 
   const handleFile = (file: File) => {
+    if (file.type.startsWith('video/')) {
+      loadVideoFile(file)
+        .then(() => setShowVideoWizard(true))
+        .catch((err: unknown) => {
+          toast({
+            title: t('errors.pipelineFailed'),
+            description: err instanceof Error ? err.message : String(err),
+            variant: 'destructive',
+          });
+        });
+      return;
+    }
     const url = URL.createObjectURL(file);
     setImage(url);
   };
@@ -84,10 +105,6 @@ export default function Editor() {
   const handleCloseWizard = () => {
     setShowWizard(false);
     resetAnonymize();
-  };
-
-  const handleOpenVideoWizard = () => {
-    setShowVideoWizard(true);
   };
 
   const handleCloseVideoWizard = () => {
@@ -115,10 +132,6 @@ export default function Editor() {
           <Button variant="outline" onClick={() => void navigate('/')}>
             {t('editor.empty.action')}
           </Button>
-          <Button variant="outline" onClick={handleOpenVideoWizard}>
-            <Film className="h-4 w-4 mr-2" />
-            Hide Faces (Video)
-          </Button>
         </div>
       </div>
     );
@@ -129,14 +142,14 @@ export default function Editor() {
       <div className="flex flex-1 min-h-0 gap-3 max-md:flex-col max-md:gap-1.5">
         {/* Tools column */}
         <aside className="hidden w-[220px] flex-shrink-0 md:block">
-          <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} onAnonymizeVideo={handleOpenVideoWizard} />
+          <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} />
         </aside>
 
         {/* Canvas column */}
         <section className="flex min-h-0 flex-1 flex-col gap-3 max-md:gap-1.5">
           {/* Mobile toolbar */}
           <div className="md:hidden flex-shrink-0">
-            <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} onAnonymizeVideo={handleOpenVideoWizard} compact />
+            <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} compact />
           </div>
           {showWizard ? (
             <div className="flex-1 min-h-0 overflow-hidden">

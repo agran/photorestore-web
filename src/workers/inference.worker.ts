@@ -8,6 +8,17 @@ type BackendType = 'webgpu' | 'wasm';
 
 const sessions = new Map<string, ort.InferenceSession>();
 
+// ORT WebGPU EP shares a global device across sessions and is not safe to
+// re-enter. If two pipelines (face detect + pose estimate) await runs in
+// parallel from the same worker, ORT can throw "Session mismatch". Serialize
+// inferenceSession.run() calls through a single FIFO queue.
+let runQueue: Promise<unknown> = Promise.resolve();
+function serializeRun<T>(fn: () => Promise<T>): Promise<T> {
+  const next = runQueue.then(fn, fn);
+  runQueue = next.catch(() => {});
+  return next;
+}
+
 function setupRuntime(numThreads: number, enableSIMD: boolean) {
   ort.env.wasm.numThreads = numThreads;
   ort.env.wasm.simd = enableSIMD;
@@ -74,40 +85,44 @@ const api: InferenceWorkerApi = {
     const session = sessions.get(modelUrl);
     if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
 
-    const inputName = session.inputNames[0];
-    const outputName = session.outputNames[0];
+    return serializeRun(async () => {
+      const inputName = session.inputNames[0];
+      const outputName = session.outputNames[0];
 
-    const feeds: Record<string, ort.Tensor> = {
-      [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
-    };
+      const feeds: Record<string, ort.Tensor> = {
+        [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
+      };
 
-    const results = await session.run(feeds);
-    const output = results[outputName];
+      const results = await session.run(feeds);
+      const output = results[outputName];
 
-    return new Float32Array(output.data as Float32Array);
+      return new Float32Array(output.data as Float32Array);
+    });
   },
 
   async runMulti(inputTensor, inputShape, modelUrl) {
     const session = sessions.get(modelUrl);
     if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
 
-    const inputName = session.inputNames[0];
+    return serializeRun(async () => {
+      const inputName = session.inputNames[0];
 
-    const feeds: Record<string, ort.Tensor> = {
-      [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
-    };
-
-    const results = await session.run(feeds);
-
-    const record: Record<string, { data: Float32Array; dims: number[] }> = {};
-    for (const name of session.outputNames) {
-      const output = results[name];
-      record[name] = {
-        data: new Float32Array(output.data as Float32Array),
-        dims: output.dims.slice(),
+      const feeds: Record<string, ort.Tensor> = {
+        [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
       };
-    }
-    return record;
+
+      const results = await session.run(feeds);
+
+      const record: Record<string, { data: Float32Array; dims: number[] }> = {};
+      for (const name of session.outputNames) {
+        const output = results[name];
+        record[name] = {
+          data: new Float32Array(output.data as Float32Array),
+          dims: output.dims.slice(),
+        };
+      }
+      return record;
+    });
   },
 
   async destroy() {

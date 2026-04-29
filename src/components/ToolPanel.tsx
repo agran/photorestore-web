@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Wand2, User, Brush, Zap, EyeOff, Film } from 'lucide-react';
+import { Wand2, User, Brush, Zap, EyeOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { useEditorStore } from '@/store/editorStore';
@@ -8,11 +8,10 @@ import type { PipelineType } from '@/ml/pipelineRunner';
 interface ToolPanelProps {
   onAnonymize?: (modelId: string) => void;
   onSelectTool?: (tool: PipelineType) => void;
-  onAnonymizeVideo?: () => void;
   compact?: boolean;
 }
 
-export default function ToolPanel({ onAnonymize, onSelectTool, onAnonymizeVideo, compact }: ToolPanelProps) {
+export default function ToolPanel({ onAnonymize, onSelectTool, compact }: ToolPanelProps) {
   const { t } = useTranslation();
   const { activeJob } = useEditorStore();
   const isRunning = activeJob?.status === 'running';
@@ -24,7 +23,6 @@ export default function ToolPanel({ onAnonymize, onSelectTool, onAnonymizeVideo,
       { icon: <Brush className="h-4 w-4" />, label: t('editor.tools.inpaintShort'), action: () => onSelectTool?.('inpaint'), disabled: true },
       { icon: <Wand2 className="h-4 w-4" />, label: t('editor.tools.denoiseShort'), action: () => onSelectTool?.('denoise'), disabled: true },
       { icon: <EyeOff className="h-4 w-4" />, label: t('editor.tools.anonymizeShort'), action: () => onAnonymize?.('scrfd-500m') },
-      { icon: <Film className="h-4 w-4" />, label: 'Video', action: () => onAnonymizeVideo?.() },
     ];
     return (
       <div className="flex justify-center gap-0.5">
@@ -102,17 +100,6 @@ export default function ToolPanel({ onAnonymize, onSelectTool, onAnonymizeVideo,
         >
           <EyeOff className="h-4 w-4" />
           {t('editor.tools.anonymize')}
-        </Button>
-
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full justify-start gap-2"
-          disabled={isRunning}
-          onClick={() => onAnonymizeVideo?.()}
-        >
-          <Film className="h-4 w-4" />
-          Hide Faces (Video)
         </Button>
       </CardContent>
     </Card>

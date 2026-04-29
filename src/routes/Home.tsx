@@ -5,6 +5,8 @@ import Dropzone from '@/components/Dropzone';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useEditorStore } from '@/store/editorStore';
+import { useVideoAnonymizeStore } from '@/store/videoAnonymizeStore';
+import { toast } from '@/hooks/useToast';
 
 const FEATURES = [
   {
@@ -43,8 +45,21 @@ export default function Home() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { setImage } = useEditorStore();
+  const loadVideo = useVideoAnonymizeStore((s) => s.loadFile);
 
   const handleFile = (file: File) => {
+    if (file.type.startsWith('video/')) {
+      loadVideo(file)
+        .then(() => navigate('/editor'))
+        .catch((err: unknown) => {
+          toast({
+            title: t('errors.pipelineFailed'),
+            description: err instanceof Error ? err.message : String(err),
+            variant: 'destructive',
+          });
+        });
+      return;
+    }
     const url = URL.createObjectURL(file);
     setImage(url);
     void navigate('/editor');

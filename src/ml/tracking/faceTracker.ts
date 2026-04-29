@@ -133,18 +133,31 @@ function kalmanUpdate(state: KalmanState, detection: FaceBox): KalmanState {
   };
 }
 
+export interface FaceTrackerOptions {
+  /**
+   * How many consecutive frames a track may go unmatched before being dropped.
+   * Default 40 (~1.3s at 30fps). Increase when an external signal (e.g. body
+   * pose) can keep masking the face region after the detector loses it.
+   */
+  maxLost?: number;
+}
+
 export class FaceTracker {
   private tracks: KalmanState[] = [];
   private trackIds: number[] = [];
   private nextId = 1;
   private lostCounts: number[] = [];
-  private maxLost = 40;
+  private maxLost: number;
   private costHigh = 0.65;
   private costLow = 1.5;
 
   private emaUpdate = 0.55;
   private emaPredict = 1.0; // no lag during predict — Kalman state is already smoothed via velocity EMA
   private smoothBoxes: Array<{ x: number; y: number; w: number; h: number } | null> = [];
+
+  constructor(options: FaceTrackerOptions = {}) {
+    this.maxLost = options.maxLost ?? 40;
+  }
 
   update(detections: FaceBox[], _confThreshold = 0.5, frameW = 1, frameH = 1): TrackedFace[] {
     const highDets = detections.filter((d) => d.confidence >= 0.5);

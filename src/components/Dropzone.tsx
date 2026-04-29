@@ -4,8 +4,10 @@ import { Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
 
-const MAX_FILE_SIZE = 32 * 1024 * 1024; // 32 MB
-const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32 MB
+const MAX_VIDEO_SIZE = 500 * 1024 * 1024; // 500 MB
+const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+const ACCEPT_ATTR = [...ACCEPTED_IMAGE_TYPES, 'video/*'].join(',');
 
 interface DropzoneProps {
   onFile: (file: File) => void;
@@ -19,16 +21,19 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
 
   const handleFile = useCallback(
     (file: File) => {
-      if (!ACCEPTED_TYPES.includes(file.type)) {
+      const isImage = ACCEPTED_IMAGE_TYPES.includes(file.type);
+      const isVideo = file.type.startsWith('video/');
+      if (!isImage && !isVideo) {
         toast({ title: t('errors.unsupportedFormat'), variant: 'destructive' });
         return;
       }
-      if (file.size > MAX_FILE_SIZE) {
+      const limit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
+      if (file.size > limit) {
         toast({ title: t('errors.fileTooLarge'), variant: 'destructive' });
         return;
       }
-      const url = URL.createObjectURL(file);
-      setPreview(url);
+      // Preview only makes sense for images — leave the dropzone intact for videos.
+      if (isImage) setPreview(URL.createObjectURL(file));
       onFile(file);
     },
     [onFile, t]
@@ -80,7 +85,7 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
       <input
         id="dropzone-input"
         type="file"
-        accept={ACCEPTED_TYPES.join(',')}
+        accept={ACCEPT_ATTR}
         className="sr-only"
         onChange={onInputChange}
       />

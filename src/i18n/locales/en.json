@@ -25,8 +25,8 @@
   "home": {
     "heroTitle": "Restore Your Photos with AI",
     "heroSubtitle": "Upscale, denoise, and revive old photos — entirely in your browser, no data leaves your device.",
-    "dropHint": "Drop an image here or click to select",
-    "dropHintFormats": "PNG, JPG, WEBP up to 32 MB",
+    "dropHint": "Drop an image or video here or click to select",
+    "dropHintFormats": "PNG, JPG, WEBP up to 32 MB · MP4, WebM, MOV up to 500 MB",
     "features": {
       "upscale": "4× Super Resolution",
       "upscaleDesc": "Real-ESRGAN AI upscaling preserving fine details",
@@ -140,7 +140,8 @@
     "scrfd-500m": "SCRFD-500M — fast lightweight face detector",
     "yunet-2023": "YuNet 2023 — ultra-lightweight face detector (75K params)",
     "retinaface-mbn025": "RetinaFace-MobileNet0.25 — robust to profiles and occlusion",
-    "blazeface": "BlazeFace — fastest detector, best for real-time use"
+    "blazeface": "BlazeFace — fastest detector, best for real-time use",
+    "yolo26m-pose": "YOLOv8-Pose — body keypoint detection for face tracking during occlusion"
   },
   "anonymize": {
     "title": "Hide Faces",
@@ -165,12 +166,15 @@
     "emojiRandom": "Random",
     "ellipse": "Oval",
     "videoTitle": "Video: Hide Faces",
-    "videoUploadHint": "Upload a video to hide faces",
-    "videoChoose": "Choose Video",
     "quality": "Quality",
     "quality_accurate": "Accurate",
     "quality_accurate_hint": "Detect faces every frame — no gaps when faces appear, slower processing",
     "quality_fast": "Fast",
-    "quality_fast_hint": "Adaptive detection (every 5–60 frames) — faster, but newly-appearing faces may stay uncovered briefly"
+    "quality_fast_hint": "Adaptive detection (every 5–60 frames) — faster, but newly-appearing faces may stay uncovered briefly",
+    "bodyTracking": "Body tracking",
+    "bodyTrackingHint": "Use YOLO-pose to keep masks on people when faces are briefly hidden (turned head, occlusion). Downloads ~80 MB model.",
+    "openAnotherVideo": "Open another video",
+    "editAgain": "Back to settings",
+    "backToResult": "Back to result"
   }
 }

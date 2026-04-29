@@ -9,7 +9,7 @@ export interface ModelMeta {
   license: string;
   /** i18n key for description */
   descriptionKey: string;
-  pipeline: 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | 'anonymize';
+  pipeline: 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | 'anonymize' | 'poseEstimate';
   tags: string[];
   forceWasm?: boolean;
 }
@@ -229,6 +229,18 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.blazeface',
     pipeline: 'anonymize',
     tags: ['face', 'detect', 'lightweight'],
+  },
+  {
+    id: 'yolo26m-pose',
+    name: 'YOLO26m-Pose',
+    url: modelUrl('yolo26m-pose.onnx'),
+    sizeBytes: 86_526_765,
+    sha256: '',
+    inputShape: [1, 3, 576, 704],
+    license: 'AGPL-3.0',
+    descriptionKey: 'models.yolo26m-pose',
+    pipeline: 'poseEstimate',
+    tags: ['pose', 'body'],
   },
 ];
 
