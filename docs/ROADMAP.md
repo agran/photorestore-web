@@ -62,7 +62,6 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 | Detect | reuse `anonymize.ts` pipeline | Full detection on keyframes; BlazeFace cheap verifier on every frame |
 | Track | `faceTracker.ts` | ByteTrack (two-stage IoU matching) + adaptive keyframe interval |
 | Re-ID | `faceReid.ts` (ArcFace ONNX) | Re-identify faces after long occlusions (v0.7.4, optional) |
-| Pose | `poseDetector.ts` (yolo26m-pose) | Body keypoints anchor face position (v0.7.5, optional) |
 | Effect | reuse `anonymizeEffects.ts` | Blur / Pixelate / Solid / Emoji per-face per-frame |
 | Encode | `WebCodecs VideoEncoder` | H.264 baseline primary, VP9 optional. `isConfigSupported()` for capability |
 | Mux | `mp4-muxer` | Combine encoded video + audio passthrough → MP4/WebM |
@@ -139,14 +138,12 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 - [ ] v0.7.2: Audio passthrough (MP4Box + mp4-muxer), ETA, cancel, long video support
 - [ ] v0.7.3: UI — video scrubber, keyframe editor, preview during processing
 - [ ] v0.7.4: [optional] ArcFace re-ID for long occlusions (face descriptor ONNX)
-- [ ] v0.7.5: [optional, only if test failures warrant] YOLO-pose body anchor for 3/4 profile / turning cases
 
 ### Dependencies
 
 - `mp4box.js` — MP4 demuxing (npm, ~200KB)
 - `mp4-muxer` — MP4/WebM muxing with audio passthrough (npm, ~20KB)
 - `@ffmpeg/ffmpeg` / `@ffmpeg/util` — fallback encode for very old browsers
-- `yolo26m-pose.onnx` — only for v0.7.5, not a hard dependency
 - `arcface-mbn.onnx` — only for v0.7.4 re-ID
 - No other new runtime deps — Canvas API (`OffscreenCanvas`, `ImageBitmap`) + existing ORT
 
