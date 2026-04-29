@@ -38,6 +38,81 @@
 - [x] Vite `base` config for GitHub Pages asset paths
 - [x] GitHub Actions CI + GitHub Pages deploy (source: Actions, not branch)
 
+## v0.7 — Video Face Anonymization
+
+> Extends the v0.6 Hide Faces pipeline to video. Same 4 effects,
+> same 5 detectors, but applied frame-by-frame with face tracking
+> and re-encoding into a video file.
+
+### Architecture
+
+```
+MP4/WebM → Canvas decode → Frame → Detect (keyframes) → Track (Kalman+IoU)
+                                   → [YOLO-pose body anchor]
+                                   → Apply effect → Encode → Output video
+```
+
+| Layer | Module | Purpose |
+|-------|--------|---------|
+| Input | `VideoAnonymizeWizard.tsx` | Video upload, frame preview, effect settings, progress |
+| Decode | `videoDecoder.ts` | `<video>` → Canvas → `ImageData` per frame |
+| Detect | reuse `anonymize.ts` pipeline | Full detection every N keyframes |
+| Track | `faceTracker.ts` | Kalman filter + IoU matching for in-between frames |
+| Pose | `poseDetector.ts` (yolo26m-pose) | Body keypoints anchor face position, reduce drift |
+| Effect | reuse `anonymizeEffects.ts` | Blur / Pixelate / Solid / Emoji per-face per-frame |
+| Encode | `videoEncoder.ts` | WebCodecs (preferred) or ffmpeg.wasm → MP4/WebM |
+| State | `videoAnonymizeStore.ts` | Per-frame face boxes, track IDs, processing progress |
+
+### Face Tracking (v0.7.1)
+
+- **Keyframe interval**: full detection every 10–15 frames
+- **Kalman filter**: 4-state (x, y, dx, dy) per face, constant velocity model
+- **IoU matching**: greedy Hungarian association between predicted and detected boxes
+- **Drift recovery**: re-detect when IoU < 0.3 for 3 consecutive frames
+- **New face detection**: any unmatched detection → spawn tracker
+
+### YOLO Pose Integration (v0.7.2)
+
+- Model: `yolo26m-pose.onnx` (~26 MB, 17 COCO keypoints)
+- Each person gets bbox + keypoints (nose, eyes, ears, shoulders, elbows, wrists, hips, knees, ankles)
+- Face bbox anchored to body via nose+eyes → body bbox; stabilizes during occlusion/turning
+- Only runs on keyframes (every 10–15 frames, same schedule as detection)
+- Optional: skip face detector entirely, use nose+eyes as face proxy (faster but less accurate)
+
+### Encoding Strategy
+
+| Method | Pros | Cons |
+|--------|------|------|
+| **WebCodecs** | GPU-accelerated, no WASM | Chrome/Edge only, no Firefox |
+| **ffmpeg.wasm** | Cross-browser, mature | 30+ MB WASM, CPU-only, slow |
+| **Hybrid** | WebCodecs if available, fallback to ffmpeg.wasm | Extra build complexity |
+
+Choice: WebCodecs first (target Chrome/Edge, 93% of users), ffmpeg.wasm as fallback.
+
+### UI Flow
+
+1. Upload video → show first frame + duration/resolution info
+2. Detect faces on frame 0 → show overlay (reuse FaceOverlay)
+3. Configure effects (reuse AnonymizeWizard effect panel)
+4. "Process" → progress: current frame / total frames, ETA, cancel button
+5. "Download" → output video (WebM VP9, same resolution/fps as input)
+6. Before/After: side-by-side video players (or frame comparison for selected frame)
+
+### Milestones
+
+- [ ] v0.7.0: Canvas decode → full detection per frame → WebCodecs/ffmpeg encode → download
+- [ ] v0.7.1: Kalman+IoU face tracking → keyframe detection → 10× speedup
+- [ ] v0.7.2: YOLO-pose body anchor → robust tracking through occlusion/turns
+- [ ] v0.7.3: UI — video preview scrubber, keyframe editor, ETA, cancel, audio passthrough
+
+### Dependencies
+
+- `yolo26m-pose.onnx` → `src/ml/models/` + modelRegistry entry
+- `@ffmpeg/ffmpeg` or `@ffmpeg/util` (if WebCodecs unavailable)
+- No new runtime deps otherwise — Canvas API + existing ORT
+
+---
+
 ## v0.3 — Face Restoration
 
 - [ ] GFPGAN v1.4 integration
