@@ -208,10 +208,8 @@ async function anonymizeVideoV2(
         }
         nextDetectionFrame = frameIndex + detectionIntervalAdaptive;
       } else {
-        trackedFaces = tracker.update([], 0.5, cW, cH);
+        trackedFaces = tracker.predict(cW, cH);
       }
-
-      sample.draw(processCtx, 0, 0, cW, cH);
 
       if (trackedFaces.length > 0) {
         const frameCopy = canvasFromCanvas(processCanvas);
@@ -370,7 +368,7 @@ async function anonymizeVideoFallback(
       }
       nextDetectionFrame = f + dInterval;
     } else {
-      trackedFaces = tracker.update([], 0.5, cW, cH);
+      trackedFaces = tracker.predict(cW, cH);
     }
 
     await seekToFrame(video, f);

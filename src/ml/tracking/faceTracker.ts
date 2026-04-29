@@ -155,7 +155,7 @@ export class FaceTracker {
   private trackIds: number[] = [];
   private nextId = 1;
   private lostCounts: number[] = [];
-  private maxLost = 10; // frames before track deletion
+  private maxLost = 30; // frames before track deletion (must be > max detection interval)
   private iouHigh = 0.4; // IoU threshold for high-confidence
   private iouLow = 0.2; // IoU threshold for low-confidence
   
@@ -302,6 +302,54 @@ export class FaceTracker {
     this.lostCounts = [];
     this.smoothBoxes = [];
     this.nextId = 1;
+  }
+
+  /**
+   * Predict tracks forward without detections. Does NOT increment lostCounts.
+   * Use between keyframes to keep tracks alive without counting them as lost.
+   */
+  predict(frameW = 1, frameH = 1): TrackedFace[] {
+    // Predict all tracks forward
+    const predicted = this.tracks.map((t) => kalmanPredict(t));
+    this.tracks = predicted;
+
+    // Apply EMA smoothing
+    const results: TrackedFace[] = [];
+    for (let i = 0; i < this.tracks.length; i++) {
+      const t = this.tracks[i];
+      const raw = { x: t.x, y: t.y, w: t.w, h: t.h };
+
+      let smooth: { x: number; y: number; w: number; h: number };
+      if (this.smoothBoxes[i]) {
+        smooth = {
+          x: this.smoothBoxes[i]!.x * (1 - this.ema) + raw.x * this.ema,
+          y: this.smoothBoxes[i]!.y * (1 - this.ema) + raw.y * this.ema,
+          w: this.smoothBoxes[i]!.w * (1 - this.ema) + raw.w * this.ema,
+          h: this.smoothBoxes[i]!.h * (1 - this.ema) + raw.h * this.ema,
+        };
+      } else {
+        smooth = raw;
+      }
+
+      smooth.x = Math.max(0, Math.min(smooth.x, frameW - 1));
+      smooth.y = Math.max(0, Math.min(smooth.y, frameH - 1));
+      smooth.w = Math.max(8, Math.min(smooth.w, frameW - smooth.x));
+      smooth.h = Math.max(8, Math.min(smooth.h, frameH - smooth.y));
+      this.smoothBoxes[i] = smooth;
+
+      results.push({
+        trackId: this.trackIds[i],
+        x: t.x, y: t.y, width: t.w, height: t.h,
+        confidence: 0,
+        smoothX: smooth.x, smoothY: smooth.y,
+        smoothWidth: smooth.w, smoothHeight: smooth.h,
+        dx: t.dx, dy: t.dy,
+        covariance: t.p,
+        framesSinceUpdate: this.lostCounts[i] || 0,
+      });
+    }
+
+    return results;
   }
 
   /** Check if all tracks are confident (low covariance) */
