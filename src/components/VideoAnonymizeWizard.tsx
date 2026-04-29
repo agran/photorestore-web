@@ -147,6 +147,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
             <span>{formatDuration(duration)}</span>
             <span>{fps}fps</span>
             <span>{width}×{height}</span>
+            <span className="text-amber-600 dark:text-amber-400">⚠ Audio not preserved</span>
           </div>
         )}
 

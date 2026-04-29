@@ -53,7 +53,7 @@ const initialState = {
   pixelateSize: 16,
   solidColor: '#000000',
   modelId: 'scrfd-500m',
-  padding: 4,
+  padding: 16,
   feather: 4,
   maskShape: 'ellipse' as MaskShape,
   progress: 0,
