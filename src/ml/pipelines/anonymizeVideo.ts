@@ -13,9 +13,8 @@ import {
   Input, Output, Mp4OutputFormat, BufferTarget,
   ALL_FORMATS, BlobSource,
   VideoSampleSink, EncodedPacketSink,
-  EncodedVideoPacketSource, EncodedAudioPacketSource,
-  EncodedPacket,
-  type VideoCodec, type AudioCodec,
+  CanvasSource, EncodedAudioPacketSource,
+  type AudioCodec,
 } from 'mediabunny';
 
 export interface VideoAnonymizeOptions {
@@ -87,18 +86,16 @@ function randomEmoji(): string {
   return EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)];
 }
 
-function hasVideoEncoder(): boolean {
-  return typeof VideoEncoder !== 'undefined' && typeof VideoEncoder.isConfigSupported === 'function';
-}
-
 export async function anonymizeVideo(
   file: File,
   options: VideoAnonymizeOptions,
 ): Promise<Blob> {
-  if (!hasVideoEncoder()) {
+  try {
+    return await anonymizeVideoV2(file, options);
+  } catch (err) {
+    console.warn('[anonymizeVideo] V2 failed, using fallback:', err);
     return anonymizeVideoFallback(file, options);
   }
-  return anonymizeVideoV2(file, options);
 }
 
 async function anonymizeVideoV2(
@@ -124,44 +121,26 @@ async function anonymizeVideoV2(
 
   const cW = await videoTrack.getCodedWidth();
   const cH = await videoTrack.getCodedHeight();
-  const videoCodec = (await videoTrack.getCodec()) ?? 'avc';
+  const videoDuration = (videoTrack as unknown as { duration?: number }).duration ?? 10;
+  const estimatedTotalFrames = Math.round(videoDuration * 30);
 
-  // 2. Setup output
+  const processCanvas = document.createElement('canvas');
+  processCanvas.width = cW;
+  processCanvas.height = cH;
+  const processCtx = processCanvas.getContext('2d')!;
+
+  // 2. Setup output with CanvasSource for auto-encoding
   const output = new Output({
     format: new Mp4OutputFormat({ fastStart: 'in-memory' }),
     target: new BufferTarget(),
   });
 
-  const encodedChunks: EncodedPacket[] = [];
-
-  const encoder = new VideoEncoder({
-    output: (chunk) => {
-      const data = new Uint8Array(chunk.byteLength);
-      chunk.copyTo(data);
-      encodedChunks.push(new EncodedPacket(
-        data,
-        chunk.type === 'key' ? 'key' : 'delta',
-        chunk.timestamp,
-        chunk.duration ?? 33_333,
-      ));
-    },
-    error: (err) => { console.error('VideoEncoder error:', err); },
-  });
-
-  const outputCodec: VideoCodec = videoCodec as VideoCodec;
-  const h264Config: VideoEncoderConfig = {
-    codec: 'avc1.420028',  // level 4.0, supports up to 2048x1024
-    width: cW,
-    height: cH,
-    bitrate: 5_000_000,
-  };
-  const configSupported = await VideoEncoder.isConfigSupported(h264Config);
-  encoder.configure(configSupported ? h264Config : {
-    codec: 'vp09.00.10.08',
-    width: cW,
-    height: cH,
+  const canvasSource = new CanvasSource(processCanvas, {
+    codec: 'avc',
     bitrate: 5_000_000,
   });
+  output.addVideoTrack(canvasSource);
+  await output.start();
 
   // 3. Stream video frames
   const videoSink = new VideoSampleSink(videoTrack);
@@ -173,12 +152,6 @@ async function anonymizeVideoV2(
   const minInterval = 5;
   const maxInterval = 60;
 
-  const processCanvas = document.createElement('canvas');
-  processCanvas.width = cW;
-  processCanvas.height = cH;
-  const processCtx = processCanvas.getContext('2d')!;
-
-  // Consume samples with proper cleanup on each iteration
   const sampleIterator = videoSink.samples();
   let sampleResult = await sampleIterator.next();
 
@@ -233,27 +206,23 @@ async function anonymizeVideoV2(
         }
       }
 
-      const tsUs = Math.round(sample.timestamp * 1_000_000);
-      const durUs = Math.round(sample.duration * 1_000_000) || 33_333;
-      try {
-        const videoFrame = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
-        encoder.encode(videoFrame);
-        videoFrame.close();
-      } catch (encodeErr) {
-        console.error('Frame encode failed:', encodeErr);
-      }
+      // CanvasSource encodes and adds the current canvas state
+      await canvasSource.add(sample.timestamp, sample.duration || 1 / 30);
 
       frameIndex++;
 
-      const progress = 5 + Math.min(90, Math.round((frameIndex / Math.max(frameIndex + 5, 10)) * 90));
-      onProgress?.(progress);
+      // Progress based on frame index vs estimated total
+      const progress = estimatedTotalFrames > 0
+        ? 5 + Math.round((frameIndex / estimatedTotalFrames) * 90)
+        : 5 + Math.min(90, Math.round(frameIndex / (frameIndex + 30) * 90));
+      onProgress?.(Math.min(95, progress));
 
       if (onEta && frameIndex > 5) {
         const elapsed = (performance.now() - startTime) / 1000;
-        const msPerFrame = elapsed / frameIndex;
-        const remainingFrames = Math.max(0, (frameIndex * 3) - frameIndex);
-        const eta = msPerFrame * remainingFrames;
-        onEta(Math.max(0, Math.round(eta)));
+        const rate = frameIndex / elapsed;
+        const remaining = estimatedTotalFrames - frameIndex;
+        const eta = Math.max(0, Math.round(remaining / rate));
+        onEta(eta);
       }
     } finally {
       sample.close();
@@ -262,21 +231,9 @@ async function anonymizeVideoV2(
     sampleResult = await sampleIterator.next();
   }
 
-  try { await encoder.flush(); } catch { /* ignore */ }
-  encoder.close();
+  canvasSource.close();
 
-  // 4. Add encoded chunks to output
-  const videoSource = new EncodedVideoPacketSource(outputCodec);
-  output.addVideoTrack(videoSource);
-  await output.start();
-
-  for (const pkt of encodedChunks) {
-    if (signal?.aborted) break;
-    await videoSource.add(pkt);
-  }
-  videoSource.close();
-
-  // 5. Audio passthrough
+  // 4. Audio passthrough
   if (audioTrack) {
     const audioCodec = await audioTrack.getCodec() as AudioCodec;
     if (audioCodec) {
