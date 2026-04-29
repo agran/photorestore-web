@@ -47,7 +47,7 @@
 ## v0.7 — Video Face Anonymization
 
 > Extends the v0.6 Hide Faces pipeline to video. Same 4 effects,
-> same 5 detectors, but applied frame-by-frame with face tracking
+> same 4 detectors, but applied frame-by-frame with face tracking
 > and re-encoding into an MP4 file.
 
 ### Architecture
@@ -132,11 +132,10 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - **EMA smoothing:** body-derived face box is EMA-smoothed across frames (α=0.4) to eliminate pose-keypoint jitter
 - **Stable effect width:** per-track EMA of observed face width — grows instantly, decays at 0.99/frame (~70-frame half-life). Prevents pixelate/blur kernel from shrinking when the detector reports a smaller box during head rotation
 - **`faceBoxFromPose` size cascade:** eye distance × 3.0 → ear distance × 1.6 → shoulder width / 3.0 → single-eye-to-nose × 6 → single-ear-to-nose × 2 → shoulder-to-nose / 1.6 → body bbox / 3.5 → fallback. Single-side fallbacks handle partial/edge views where only one side of the body is visible
-- **`faceBoxFromPose` size cascade:** eye distance × 3.0 → ear distance × 1.6 → shoulder width / 3.0 → single-eye-to-nose × 6 → single-ear-to-nose × 2 → shoulder-to-nose / 1.6 → body bbox / 3.5 → fallback. Single-side fallbacks handle partial/edge views where only one side of the body is visible
 
 ### Scale-Invariant Effects
 
-- **Effect strength scaling:** super-linear `scaleFactor = (faceWidth / 100)^1.3` — bigger faces get disproportionately stronger blur/pixelation. Face=200px → 2.46× strength (not 2× linear)
+- **Effect strength scaling:** clamped-linear `scaleFactor = max(1, faceWidth / 100)` — constant block count per face ≥100px. Small faces keep slider value (factor ≥1).
 - **Per-track stable width:** EMA with instant-grow / slow-decay — kernel doesn't jitter when the detector bbox fluctuates due to head rotation
 - **Padding & feather:** linearly scaled with face width (`pad = userValue × faceWidth/100`)
 - **Emoji font size:** `faceWidth × 0.6` — adapts to face size per frame
@@ -196,7 +195,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 ### Dependencies
 
 - `mediabunny` (1.42.0) — MP4/WebM demux + mux with audio passthrough (npm, ~400KB)
-- `onnxruntime-web` (1.26.0-dev) — face detection + pose estimation
+- `onnxruntime-web` (1.25.1) — face detection + pose estimation
 - No other new runtime deps — Canvas API + existing ORT
 
 ---
@@ -227,7 +226,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 > **Priority — maximum detection recall over speed.** Robust on group photos
 > (weddings, school classes, concerts, crowds).
 
-### Models (5 detectors — single-model, interactive correction)
+### Models (4 detectors — single-model, interactive correction)
 
 - [x] SCRFD-10G-KPS (15.5 MB, quality, WebGPU — ceil_mode=0 patch for ORT 1.25.1, now the default model)
 - [x] SCRFD-500M (2.4 MB, lightweight, WebGPU)
@@ -313,7 +312,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 > **Priority — maximum detection recall over speed.** Robust on group photos
 > (weddings, school classes, concerts, crowds).
 
-### Models (5 detectors — single-model, interactive correction)
+### Models (4 detectors — single-model, interactive correction)
 
 - [x] SCRFD-10G-KPS (15.5 MB, quality, WebGPU — ceil_mode=0 patch for ORT 1.25.1, now the default model)
 - [x] SCRFD-500M (2.4 MB, lightweight, WebGPU)
