@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Download, Play, X } from 'lucide-react';
+import { Clock, Download, Play, X, Film } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Dropzone from '@/components/Dropzone';
@@ -108,9 +108,15 @@ export default function Editor() {
         <div className="mt-8 w-full max-w-md">
           <Dropzone onFile={handleFile} className="min-h-[180px]" />
         </div>
-        <Button className="mt-4" variant="outline" onClick={() => void navigate('/')}>
-          {t('editor.empty.action')}
-        </Button>
+        <div className="mt-4 flex gap-3">
+          <Button variant="outline" onClick={() => void navigate('/')}>
+            {t('editor.empty.action')}
+          </Button>
+          <Button variant="outline" onClick={handleOpenVideoWizard}>
+            <Film className="h-4 w-4 mr-2" />
+            Hide Faces (Video)
+          </Button>
+        </div>
       </div>
     );
   }
