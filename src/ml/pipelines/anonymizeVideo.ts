@@ -7,6 +7,7 @@ import {
   applyEmoji,
   type AnonymizeEffectOptions,
 } from '@/ml/utils/anonymizeEffects';
+import { FaceTracker, type TrackedFace } from '@/ml/tracking/faceTracker';
 import type { FaceBox } from '@/ml/utils/faceDetect';
 
 export interface VideoAnonymizeOptions {
@@ -47,6 +48,16 @@ function canvasFromCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   return canvas;
 }
 
+/**
+ * Scale a user-configured kernel value to be proportional to the face bbox width.
+ * Reference face size = 100px (standard face in a typical photo).
+ * Keeps visual consistency when face moves closer/further.
+ */
+function scaleKernel(userValue: number, bboxWidth: number): number {
+  const refWidth = 100;
+  return Math.max(1, Math.round(userValue * (bboxWidth / refWidth)));
+}
+
 function applyEffect(
   ctx: CanvasRenderingContext2D,
   source: HTMLCanvasElement,
@@ -55,32 +66,59 @@ function applyEffect(
   idx: number,
   cW: number,
   cH: number,
+  useScaleInvariant: boolean,
 ) {
+  const bboxW = box.width;
+
   switch (opts.effect) {
-    case 'blur':
-      applyBlur(ctx, source, box, opts.blurRadius, opts.padding, opts.feather, opts.maskShape, cW, cH);
+    case 'blur': {
+      const radius = useScaleInvariant ? scaleKernel(opts.blurRadius, bboxW) : opts.blurRadius;
+      const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
+      const feather = useScaleInvariant ? scaleKernel(opts.feather, bboxW) : opts.feather;
+      applyBlur(ctx, source, box, radius, pad, feather, opts.maskShape, cW, cH);
       break;
-    case 'pixelate':
-      applyPixelate(ctx, source, box, opts.pixelateSize, opts.padding, opts.feather, opts.maskShape, cW, cH);
+    }
+    case 'pixelate': {
+      const size = useScaleInvariant ? Math.max(2, Math.round(opts.pixelateSize * (bboxW / 100))) : opts.pixelateSize;
+      const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
+      const feather = useScaleInvariant ? scaleKernel(opts.feather, bboxW) : opts.feather;
+      applyPixelate(ctx, source, box, size, pad, feather, opts.maskShape, cW, cH);
       break;
-    case 'solid':
-      applySolid(ctx, source, box, opts.solidColor, opts.padding, opts.feather, opts.maskShape, cW, cH);
+    }
+    case 'solid': {
+      const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
+      const feather = useScaleInvariant ? scaleKernel(opts.feather, bboxW) : opts.feather;
+      applySolid(ctx, source, box, opts.solidColor, pad, feather, opts.maskShape, cW, cH);
       break;
+    }
     case 'emoji':
       applyEmoji(ctx, source, box, opts.emojis?.[idx] || opts.emoji, opts.padding, 0, 'rect', cW, cH);
       break;
   }
 }
 
+const EMOJI_POPULAR = [
+  '😀', '😎', '🤣', '😇', '😍', '🤩', '😘', '😜', '🥳',
+  '🐱', '🐶', '🐼', '🦊', '🐸', '👻', '💀', '🎃', '🤖',
+];
+
+function randomEmoji(): string {
+  return EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)];
+}
+
 /**
- * Process video: detect faces periodically, apply effect to every frame,
- * encode via MediaRecorder + canvas.requestFrame().
+ * Process video with ByteTrack face tracking:
+ * - Detect faces on keyframes (adaptive interval: 5-30 frames)
+ * - ByteTrack predicts between keyframes
+ * - Temporal mask smoothing via EMA
+ * - Scale-invariant effect kernels
+ * - Encode via MediaRecorder + canvas.requestFrame()
  */
 export async function anonymizeVideo(
   file: File,
   options: VideoAnonymizeOptions,
 ): Promise<Blob> {
-  const { effectOptions, modelId, detectionInterval = 30, onProgress } = options;
+  const { effectOptions, modelId, onProgress } = options;
   const resolvedOpts = resolveEffectOptions(effectOptions);
 
   const video = document.createElement('video');
@@ -94,15 +132,9 @@ export async function anonymizeVideo(
     video.onerror = () => reject(new Error('Failed to load video'));
   });
 
-  const fps = 30; // use detected fps or default
+  const fps = 30;
   const totalFrames = Math.round(video.duration * fps);
   onProgress?.(0);
-
-  // Detect faces on frame 0
-  video.currentTime = 0;
-  await new Promise<void>((resolve) => {
-    video.onseeked = () => resolve();
-  });
 
   const cW = video.videoWidth;
   const cH = video.videoHeight;
@@ -138,23 +170,72 @@ export async function anonymizeVideo(
 
   recorder.start();
 
-  let currentFaces: FaceBox[] = [];
+  const tracker = new FaceTracker();
+  let trackedFaces: TrackedFace[] = [];
+  let nextDetectionFrame = 0;
+  let detectionInterval = 15;
+  const minInterval = 5;
+  const maxInterval = 30;
+  const useScaleInvariant = true;
+
+  // Per-track emoji assignments
+  const trackEmojis = new Map<number, string>();
 
   for (let f = 0; f < totalFrames; f++) {
-    // Detect faces periodically
-    if (f % detectionInterval === 0 || f === 0) {
+    // Run full detection on keyframes
+    if (f >= nextDetectionFrame) {
       await seekToFrame(video, f, fps);
       const frameCanvas = canvasFromVideo(video);
-      currentFaces = await detectFaces(frameCanvas, { modelId });
+      const detections = await detectFaces(frameCanvas, { modelId });
+
+      trackedFaces = tracker.update(detections, 0.5, cW, cH);
+
+      // Assign emojis to new tracks
+      if (resolvedOpts.effect === 'emoji') {
+        for (const tf of trackedFaces) {
+          if (!trackEmojis.has(tf.trackId)) {
+            trackEmojis.set(tf.trackId, randomEmoji());
+          }
+        }
+      }
+
+      // Adaptive interval: shorter when tracks are shaky
+      if (tracker.isConfident() && trackedFaces.length > 0) {
+        detectionInterval = Math.min(maxInterval, detectionInterval + 5);
+      } else {
+        detectionInterval = Math.max(minInterval, detectionInterval - 5);
+      }
+      nextDetectionFrame = f + detectionInterval;
+    } else {
+      // Between keyframes: predict tracker without new detections
+      trackedFaces = tracker.update([], 0.5, cW, cH);
     }
 
+    // Seek to frame and draw
     await seekToFrame(video, f, fps);
     encodeCtx.drawImage(video, 0, 0, cW, cH);
 
-    if (currentFaces.length > 0) {
+    if (trackedFaces.length > 0) {
       const frameCanvas = canvasFromCanvas(encodeCanvas);
-      for (let i = 0; i < currentFaces.length; i++) {
-        applyEffect(encodeCtx, frameCanvas, currentFaces[i], resolvedOpts, i, cW, cH);
+
+      for (let i = 0; i < trackedFaces.length; i++) {
+        const tf = trackedFaces[i];
+        // Use smoothed bbox for effect — eliminates flickering
+        const smoothBox: FaceBox = {
+          x: tf.smoothX,
+          y: tf.smoothY,
+          width: tf.smoothWidth,
+          height: tf.smoothHeight,
+          confidence: 1,
+        };
+
+        // Resolve per-track emoji
+        const trackOpts = { ...resolvedOpts };
+        if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
+          trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
+        }
+
+        applyEffect(encodeCtx, frameCanvas, smoothBox, trackOpts, i, cW, cH, useScaleInvariant);
       }
     }
 
@@ -165,9 +246,7 @@ export async function anonymizeVideo(
     onProgress?.(Math.round((f / totalFrames) * 95));
   }
 
-  // Final remaining progress
   onProgress?.(99);
-
   recorder.stop();
 
   URL.revokeObjectURL(video.src);

@@ -20,6 +20,8 @@ interface VideoAnonymizeState {
   padding: number;
   feather: number;
   maskShape: MaskShape;
+  emojiInput: string;
+  emojiRandom: boolean;
   progress: number;
   outputBlob: Blob | null;
   outputUrl: string | null;
@@ -34,6 +36,8 @@ interface VideoAnonymizeState {
   setPadding: (v: number) => void;
   setFeather: (v: number) => void;
   setMaskShape: (v: MaskShape) => void;
+  setEmojiInput: (v: string) => void;
+  setEmojiRandom: (v: boolean) => void;
   setProgress: (p: number) => void;
   setOutput: (blob: Blob, url: string) => void;
   reset: () => void;
@@ -56,6 +60,8 @@ const initialState = {
   padding: 16,
   feather: 4,
   maskShape: 'ellipse' as MaskShape,
+  emojiInput: '😶',
+  emojiRandom: true,
   progress: 0,
   outputBlob: null as Blob | null,
   outputUrl: null as string | null,
@@ -74,6 +80,8 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set) => ({
   setPadding: (padding) => set({ padding }),
   setFeather: (feather) => set({ feather }),
   setMaskShape: (maskShape) => set({ maskShape }),
+  setEmojiInput: (emojiInput) => set({ emojiInput }),
+  setEmojiRandom: (emojiRandom) => set({ emojiRandom }),
   setProgress: (progress) => set({ progress }),
   setOutput: (outputBlob, outputUrl) => set({ step: 'done', progress: 100, outputBlob, outputUrl }),
 

@@ -26,7 +26,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     step, videoUrl, duration, fps, width, height,
     effect, blurRadius, pixelateSize, solidColor,
     modelId, padding, feather, maskShape, progress,
-    outputUrl,
+    outputUrl, emojiInput, emojiRandom,
   } = store;
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -61,7 +61,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
         modelId,
         effectOptions: {
           effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape,
-          emoji: '😶',
+          emoji: emojiInput || '😶',
         },
         onProgress: (p) => store.setProgress(p),
       });
@@ -77,7 +77,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     } finally {
       setIsProcessing(false);
     }
-  }, [store, modelId, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, t]);
+  }, [store, modelId, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, emojiInput, t]);
 
   const handleDownload = useCallback(() => {
     if (outputUrl) downloadUrl(outputUrl, 'anonymized.webm');
@@ -200,6 +200,21 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
                 </label>
               )}
             </div>
+
+            {effect === 'emoji' && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <input type="text" value={emojiInput} onChange={(e) => store.setEmojiInput(e.target.value)} placeholder="😶" className="h-7 w-11 rounded border border-input bg-background px-1 text-center text-base" maxLength={4} />
+                <label className="flex items-center gap-1 text-xs cursor-pointer select-none">
+                  <input type="checkbox" checked={emojiRandom} onChange={(e) => store.setEmojiRandom(e.target.checked)} className="h-3 w-3 rounded" />
+                  {t('anonymize.emojiRandom')}
+                </label>
+                <div className="flex gap-0.5 flex-wrap">
+                  {['😀', '😎', '🤣', '😇', '😍', '🥳', '🐱', '🐶', '👻', '💀'].map((e) => (
+                    <button key={e} className="h-6 w-6 rounded hover:bg-accent text-sm leading-none" onClick={() => { store.setEmojiInput(e); store.setEmojiRandom(false); }}>{e}</button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
