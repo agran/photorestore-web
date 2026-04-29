@@ -150,7 +150,7 @@ async function anonymizeVideoV2(
 
   const outputCodec: VideoCodec = videoCodec as VideoCodec;
   const h264Config: VideoEncoderConfig = {
-    codec: 'avc1.42001E',
+    codec: 'avc1.420028',  // level 4.0, supports up to 2048x1024
     width: cW,
     height: cH,
     bitrate: 5_000_000,
@@ -178,77 +178,88 @@ async function anonymizeVideoV2(
   processCanvas.height = cH;
   const processCtx = processCanvas.getContext('2d')!;
 
-  for await (const sample of videoSink.samples()) {
-    if (signal?.aborted) break;
+  // Consume samples with proper cleanup on each iteration
+  const sampleIterator = videoSink.samples();
+  let sampleResult = await sampleIterator.next();
 
-    let trackedFaces: TrackedFace[] = [];
+  while (!sampleResult.done) {
+    const sample = sampleResult.value!;
 
-    if (frameIndex >= nextDetectionFrame) {
-      const detectCanvas = document.createElement('canvas');
-      detectCanvas.width = cW;
-      detectCanvas.height = cH;
-      sample.draw(detectCanvas.getContext('2d')!, 0, 0, cW, cH);
-      const detections = await detectFaces(detectCanvas, { modelId });
-      trackedFaces = tracker.update(detections, 0.5, cW, cH);
+    try {
+      if (signal?.aborted) break;
 
-      if (resolvedOpts.effect === 'emoji') {
-        for (const tf of trackedFaces) {
-          if (!trackEmojis.has(tf.trackId)) {
-            trackEmojis.set(tf.trackId, randomEmoji());
+      let trackedFaces: TrackedFace[] = [];
+
+      if (frameIndex >= nextDetectionFrame) {
+        const detectCanvas = document.createElement('canvas');
+        detectCanvas.width = cW;
+        detectCanvas.height = cH;
+        sample.draw(detectCanvas.getContext('2d')!, 0, 0, cW, cH);
+        const detections = await detectFaces(detectCanvas, { modelId });
+        trackedFaces = tracker.update(detections, 0.5, cW, cH);
+
+        if (resolvedOpts.effect === 'emoji') {
+          for (const tf of trackedFaces) {
+            if (!trackEmojis.has(tf.trackId)) {
+              trackEmojis.set(tf.trackId, randomEmoji());
+            }
           }
         }
-      }
 
-      if (tracker.isConfident() && trackedFaces.length > 0) {
-        detectionIntervalAdaptive = Math.min(maxInterval, detectionIntervalAdaptive + 5);
-      } else {
-        detectionIntervalAdaptive = Math.max(minInterval, detectionIntervalAdaptive - 5);
-      }
-      nextDetectionFrame = frameIndex + detectionIntervalAdaptive;
-    } else {
-      trackedFaces = tracker.update([], 0.5, cW, cH);
-    }
-
-    // Draw sample to processing canvas
-    sample.draw(processCtx, 0, 0, cW, cH);
-
-    // Apply effects
-    if (trackedFaces.length > 0) {
-      const frameCopy = canvasFromCanvas(processCanvas);
-      for (let i = 0; i < trackedFaces.length; i++) {
-        const tf = trackedFaces[i];
-        const smoothBox: FaceBox = {
-          x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1,
-        };
-        const trackOpts = { ...resolvedOpts };
-        if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
-          trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
+        if (tracker.isConfident() && trackedFaces.length > 0) {
+          detectionIntervalAdaptive = Math.min(maxInterval, detectionIntervalAdaptive + 5);
+        } else {
+          detectionIntervalAdaptive = Math.max(minInterval, detectionIntervalAdaptive - 5);
         }
-        applyEffect(processCtx, frameCopy, smoothBox, trackOpts, i, cW, cH, useScaleInvariant);
+        nextDetectionFrame = frameIndex + detectionIntervalAdaptive;
+      } else {
+        trackedFaces = tracker.update([], 0.5, cW, cH);
       }
+
+      sample.draw(processCtx, 0, 0, cW, cH);
+
+      if (trackedFaces.length > 0) {
+        const frameCopy = canvasFromCanvas(processCanvas);
+        for (let i = 0; i < trackedFaces.length; i++) {
+          const tf = trackedFaces[i];
+          const smoothBox: FaceBox = {
+            x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1,
+          };
+          const trackOpts = { ...resolvedOpts };
+          if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
+            trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
+          }
+          applyEffect(processCtx, frameCopy, smoothBox, trackOpts, i, cW, cH, useScaleInvariant);
+        }
+      }
+
+      const tsUs = Math.round(sample.timestamp * 1_000_000);
+      const durUs = Math.round(sample.duration * 1_000_000) || 33_333;
+      try {
+        const videoFrame = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
+        encoder.encode(videoFrame);
+        videoFrame.close();
+      } catch (encodeErr) {
+        console.error('Frame encode failed:', encodeErr);
+      }
+
+      frameIndex++;
+
+      const progress = 5 + Math.min(90, Math.round((frameIndex / Math.max(frameIndex + 5, 10)) * 90));
+      onProgress?.(progress);
+
+      if (onEta && frameIndex > 5) {
+        const elapsed = (performance.now() - startTime) / 1000;
+        const msPerFrame = elapsed / frameIndex;
+        const remainingFrames = Math.max(0, (frameIndex * 3) - frameIndex);
+        const eta = msPerFrame * remainingFrames;
+        onEta(Math.max(0, Math.round(eta)));
+      }
+    } finally {
+      sample.close();
     }
 
-    // Encode processed frame (use microsecond timestamps)
-    const tsUs = Math.round(sample.timestamp * 1_000_000);
-    const durUs = Math.round(sample.duration * 1_000_000) || 33_333;
-    const videoFrame = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
-    encoder.encode(videoFrame);
-    videoFrame.close();
-    sample.close();
-
-    frameIndex++;
-
-    // Report progress (frame-based, 5-95%)
-    const progress = 5 + Math.min(90, Math.round((frameIndex / Math.max(frameIndex + 5, 10)) * 90));
-    onProgress?.(progress);
-
-    if (onEta && frameIndex > 5) {
-      const elapsed = (performance.now() - startTime) / 1000;
-      const msPerFrame = elapsed / frameIndex;
-      const remainingFrames = Math.max(0, (frameIndex * 3) - frameIndex); // rough estimate
-      const eta = msPerFrame * remainingFrames;
-      onEta(Math.max(0, Math.round(eta)));
-    }
+    sampleResult = await sampleIterator.next();
   }
 
   try { await encoder.flush(); } catch { /* ignore */ }
