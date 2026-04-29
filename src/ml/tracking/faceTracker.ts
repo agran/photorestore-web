@@ -13,16 +13,11 @@ export interface TrackedFace extends FaceBox {
 }
 
 interface KalmanState {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  dx: number;
-  dy: number;
+  x: number; y: number; w: number; h: number;
+  dx: number; dy: number; dw: number; dh: number;
   p: number;
 }
 
-// IoU between two face boxes
 function iou(a: FaceBox, b: FaceBox): number {
   const ax1 = a.x; const ay1 = a.y; const ax2 = a.x + a.width; const ay2 = a.y + a.height;
   const bx1 = b.x; const by1 = b.y; const bx2 = b.x + b.width; const by2 = b.y + b.height;
@@ -34,19 +29,16 @@ function iou(a: FaceBox, b: FaceBox): number {
   return interArea / (areaA + areaB - interArea);
 }
 
-// Cost for matching: 1 - IoU for overlapping, center-distance for separated
 function matchingCost(a: FaceBox, b: FaceBox): number {
   const iouVal = iou(a, b);
   if (iouVal > 0.01) return 1 - iouVal;
-
   const aCx = a.x + a.width / 2; const aCy = a.y + a.height / 2;
   const bCx = b.x + b.width / 2; const bCy = b.y + b.height / 2;
   const dist = Math.sqrt((aCx - bCx) ** 2 + (aCy - bCy) ** 2);
   const diag = Math.sqrt(Math.max(a.width, b.width) ** 2 + Math.max(a.height, b.height) ** 2);
-  return 1 + dist / diag; // > 1 when disjoint
+  return 1 + dist / diag;
 }
 
-// Greedy matching by DIoU cost (lower is better)
 function matchByCost(
   tracks: KalmanState[],
   detections: FaceBox[],
@@ -55,7 +47,6 @@ function matchByCost(
   const matched: Array<{ trackIdx: number; detIdx: number }> = [];
   const usedTracks = new Set<number>();
   const usedDets = new Set<number>();
-
   const pairs: Array<{ t: number; d: number; cost: number }> = [];
   for (let t = 0; t < tracks.length; t++) {
     for (let d = 0; d < detections.length; d++) {
@@ -64,42 +55,40 @@ function matchByCost(
       if (cost <= maxCost) pairs.push({ t, d, cost });
     }
   }
-
   pairs.sort((a, b) => a.cost - b.cost);
-
   for (const { t, d } of pairs) {
     if (usedTracks.has(t) || usedDets.has(d)) continue;
     matched.push({ trackIdx: t, detIdx: d });
-    usedTracks.add(t);
-    usedDets.add(d);
+    usedTracks.add(t); usedDets.add(d);
   }
-
   const unmatchedTracks: number[] = [];
   const unmatchedDets: number[] = [];
   for (let t = 0; t < tracks.length; t++) if (!usedTracks.has(t)) unmatchedTracks.push(t);
   for (let d = 0; d < detections.length; d++) if (!usedDets.has(d)) unmatchedDets.push(d);
-
   return { matched, unmatchedTracks, unmatchedDets };
 }
 
-const PROCESS_NOISE = 0.01;
+const PROCESS_NOISE_POS = 0.02; // position noise per frame²
 const MEASUREMENT_NOISE = 0.1;
-const VEL_DECAY = 0.98; // velocity fade on predict
-const ALPHA_VEL = 0.6; // EMA for velocity smoothing
+const VEL_DECAY_LOST = 0.97; // velocity decay when truly lost
+const ALPHA_VEL = 0.7; // EMA for velocity (higher = snappier)
 
-function kalmanPredict(state: KalmanState, dt = 1): KalmanState {
+function kalmanPredict(state: KalmanState, dt = 1, isLost = false): KalmanState {
+  const decay = isLost ? VEL_DECAY_LOST ** dt : 1.0;
+  const dxNew = state.dx * decay;
+  const dyNew = state.dy * decay;
+  const dwNew = state.dw * (isLost ? VEL_DECAY_LOST ** dt : 1.0);
+  const dhNew = state.dh * (isLost ? VEL_DECAY_LOST ** dt : 1.0);
   return {
-    x: state.x + state.dx * dt,
-    y: state.y + state.dy * dt,
-    w: state.w,
-    h: state.h,
-    dx: state.dx * VEL_DECAY,
-    dy: state.dy * VEL_DECAY,
-    p: state.p + PROCESS_NOISE * dt * dt, // quadratic growth with time
+    x: state.x + dxNew * dt,
+    y: state.y + dyNew * dt,
+    w: Math.max(8, state.w + dwNew * dt),
+    h: Math.max(8, state.h + dhNew * dt),
+    dx: dxNew, dy: dyNew, dw: dwNew, dh: dhNew,
+    p: state.p + (PROCESS_NOISE_POS + (isLost ? 0.01 : 0)) * dt * dt,
   };
 }
 
-// FIXED: velocity = (newPos - posBeforePrediction) / dt with EMA
 function kalmanUpdate(state: KalmanState, detection: FaceBox, dt = 1): KalmanState {
   const k = state.p / (state.p + MEASUREMENT_NOISE);
   const newX = state.x + k * (detection.x - state.x);
@@ -107,19 +96,23 @@ function kalmanUpdate(state: KalmanState, detection: FaceBox, dt = 1): KalmanSta
   const newW = state.w + k * (detection.width - state.w);
   const newH = state.h + k * (detection.height - state.h);
 
-  // instantaneous velocity from pre-prediction position
-  const prevX = state.x - state.dx;
-  const prevY = state.y - state.dy;
+  const prevX = state.x - state.dx * dt;
+  const prevY = state.y - state.dy * dt;
+  const prevW = state.w - state.dw * dt;
+  const prevH = state.h - state.dh * dt;
   const instDx = (newX - prevX) / dt;
   const instDy = (newY - prevY) / dt;
+  const instDw = (newW - prevW) / dt;
+  const instDh = (newH - prevH) / dt;
 
-  // EMA-smooth velocity
   const newDx = state.dx * (1 - ALPHA_VEL) + instDx * ALPHA_VEL;
   const newDy = state.dy * (1 - ALPHA_VEL) + instDy * ALPHA_VEL;
+  const newDw = state.dw * (1 - ALPHA_VEL) + instDw * ALPHA_VEL;
+  const newDh = state.dh * (1 - ALPHA_VEL) + instDh * ALPHA_VEL;
 
   return {
     x: newX, y: newY, w: newW, h: newH,
-    dx: newDx, dy: newDy,
+    dx: newDx, dy: newDy, dw: newDw, dh: newDh,
     p: Math.max((1 - k) * state.p, 0.001),
   };
 }
@@ -129,23 +122,20 @@ export class FaceTracker {
   private trackIds: number[] = [];
   private nextId = 1;
   private lostCounts: number[] = [];
-  private maxLost = 30;
-  // Cost thresholds for matching (1 - IoU + center-distance)
-  private costHigh = 0.65; // ≈ IoU > 0.35
-  private costRescue = 1.1; // ≈ IoU > 0.1 + center distance rescue
-  private costLow = 1.5; // very loose for low-conf dets
+  private maxLost = 40;
+  private costHigh = 0.65;
+  private costLow = 1.5;
 
-  private ema = 0.5;
-  private emaPredict = 0.35; // less trust of raw prediction (more inertia)
+  private emaUpdate = 0.55;
+  private emaPredict = 0.75;
   private smoothBoxes: Array<{ x: number; y: number; w: number; h: number } | null> = [];
 
   update(detections: FaceBox[], _confThreshold = 0.5, frameW = 1, frameH = 1): TrackedFace[] {
-    // Split detections
     const highDets = detections.filter((d) => d.confidence >= 0.5);
     const lowDets = detections.filter((d) => d.confidence < 0.5 && d.confidence >= 0.2);
 
-    // Predict all tracks forward
-    const predicted = this.tracks.map((t) => kalmanPredict(t));
+    // Predict all tracks forward (not lost yet — isLost=false)
+    const predicted = this.tracks.map((t) => kalmanPredict(t, 1, false));
 
     // Stage 1: high-confidence at strict cost
     const stage1 = matchByCost(predicted, highDets, this.costHigh);
@@ -158,32 +148,44 @@ export class FaceTracker {
       this.lostCounts[trackIdx] = 0;
     }
 
-    // Stage 1.5: rescue remaining high-conf dets with looser cost
-    const unmatchedTracksStage1 = stage1.unmatchedTracks.filter((t) => !matchedSet.has(t));
-    const unmatchedHighDets = stage1.unmatchedDets;
-    const usedHighDets = new Set<number>();
+    // Stage 1.5: rescue with adaptive cost (wider window for longer-lost tracks)
+    let usedHighDets = new Set<number>();
+    const unmatchedTrackIndices = stage1.unmatchedTracks.filter((t) => !matchedSet.has(t));
+    const unmatchedHighDetIndices = stage1.unmatchedDets;
 
-    if (unmatchedTracksStage1.length > 0 && unmatchedHighDets.length > 0) {
-      const rescueTracks = unmatchedTracksStage1.map((t) => updated[t]);
-      const rescueDets = unmatchedHighDets.map((d) => highDets[d]);
-      const stage15 = matchByCost(rescueTracks, rescueDets, this.costRescue);
+    if (unmatchedTrackIndices.length > 0 && unmatchedHighDetIndices.length > 0) {
+      for (const detRelIdx of unmatchedHighDetIndices) {
+        const det = highDets[detRelIdx];
+        let bestCost = Infinity;
+        let bestTrackIdx = -1;
 
-      for (const { trackIdx: localIdx, detIdx: localDetIdx } of stage15.matched) {
-        const globalT = unmatchedTracksStage1[localIdx];
-        const globalD = unmatchedHighDets[localDetIdx];
-        updated[globalT] = kalmanUpdate(updated[globalT], highDets[globalD]);
-        matchedSet.add(globalT);
-        this.lostCounts[globalT] = 0;
-        usedHighDets.add(localDetIdx);
+        for (const tIdx of unmatchedTrackIndices) {
+          if (matchedSet.has(tIdx) || usedHighDets.has(detRelIdx)) continue;
+          const trackBox: FaceBox = { x: updated[tIdx].x, y: updated[tIdx].y, width: updated[tIdx].w, height: updated[tIdx].h, confidence: 0 };
+          const cost = matchingCost(trackBox, det);
+          const lostFrames = this.lostCounts[tIdx] || 0;
+          // Adaptive threshold: wider window for longer-lost tracks
+          const adaptiveMax = 1.1 + Math.min(1.0, lostFrames * 0.06);
+          if (cost < bestCost && cost <= adaptiveMax) {
+            bestCost = cost;
+            bestTrackIdx = tIdx;
+          }
+        }
+
+        if (bestTrackIdx >= 0) {
+          updated[bestTrackIdx] = kalmanUpdate(updated[bestTrackIdx], det);
+          matchedSet.add(bestTrackIdx);
+          this.lostCounts[bestTrackIdx] = 0;
+          usedHighDets = new Set([...usedHighDets, detRelIdx]);
+        }
       }
     }
 
     // Stage 2: low-conf dets to remaining tracks
-    const unmatchedTrackIndicesAll = stage1.unmatchedTracks.filter((t) => !matchedSet.has(t));
+    const unmatchedTrackIndicesAll = unmatchedTrackIndices.filter((t) => !matchedSet.has(t));
     if (unmatchedTrackIndicesAll.length > 0 && lowDets.length > 0) {
       const remainingTracks = unmatchedTrackIndicesAll.map((t) => updated[t]);
       const stage2 = matchByCost(remainingTracks, lowDets, this.costLow);
-
       for (const { trackIdx: localIdx, detIdx } of stage2.matched) {
         const globalIdx = unmatchedTrackIndicesAll[localIdx];
         updated[globalIdx] = kalmanUpdate(updated[globalIdx], lowDets[detIdx]);
@@ -192,22 +194,48 @@ export class FaceTracker {
       }
     }
 
-    // Increment lost counters only for tracks that weren't matched
+    // Increment lost counters for unmatched tracks
     for (let i = 0; i < this.tracks.length; i++) {
       if (!matchedSet.has(i)) {
         this.lostCounts[i] = (this.lostCounts[i] || 0) + 1;
       }
     }
 
-    // Create new tracks from truly unmatched high-conf detections (not rescued)
-    const remainingHighDets = unmatchedHighDets.filter((_, idx) => !usedHighDets.has(idx));
+    // Create new tracks from truly unmatched high-conf detections
+    const remainingHighDets = unmatchedHighDetIndices.filter((_, idx) => !usedHighDets.has(idx));
     for (const detIdx of remainingHighDets) {
       const d = highDets[detIdx];
-      updated.push({ x: d.x, y: d.y, w: d.width, h: d.height, dx: 0, dy: 0, p: 0.1 });
-      this.trackIds.push(this.nextId++);
-      this.lostCounts.push(0);
-      // FIX: init smoothBoxes with detection box, not null
-      this.smoothBoxes.push({ x: d.x, y: d.y, w: d.width, h: d.height });
+
+      // Try to re-associate with a recently-lost nearby track instead of creating new ID
+      let reusedId = -1;
+      let bestReuseCost = Infinity;
+      for (let i = 0; i < this.tracks.length; i++) {
+        if (matchedSet.has(i)) continue;
+        if ((this.lostCounts[i] || 0) > 5) continue; // only recently lost
+        const trackBox: FaceBox = { x: updated[i].x, y: updated[i].y, width: updated[i].w, height: updated[i].h, confidence: 0 };
+        const cost = matchingCost(trackBox, d);
+        if (cost < 2.5 && cost < bestReuseCost) {
+          bestReuseCost = cost;
+          reusedId = i;
+        }
+      }
+
+      if (reusedId >= 0) {
+        // Reuse old track: update position, keep velocity from it
+        const oldTrack = updated[reusedId];
+        updated[reusedId] = {
+          x: d.x, y: d.y, w: d.width, h: d.height,
+          dx: oldTrack.dx, dy: oldTrack.dy, dw: oldTrack.dw || 0, dh: oldTrack.dh || 0,
+          p: 0.03, // confident re-association
+        };
+        matchedSet.add(reusedId);
+        this.lostCounts[reusedId] = 0;
+      } else {
+        updated.push({ x: d.x, y: d.y, w: d.width, h: d.height, dx: 0, dy: 0, dw: 0, dh: 0, p: 0.1 });
+        this.trackIds.push(this.nextId++);
+        this.lostCounts.push(0);
+        this.smoothBoxes.push({ x: d.x, y: d.y, w: d.width, h: d.height });
+      }
     }
 
     // Delete tracks exceeding maxLost
@@ -217,19 +245,19 @@ export class FaceTracker {
     this.lostCounts = this.lostCounts.filter((_, i) => keepMask[i]);
     this.smoothBoxes = this.smoothBoxes.filter((_, i) => keepMask[i]);
 
-    return this.buildResults(keepMask, updated, frameW, frameH, this.ema);
+    return this.buildResults(keepMask, updated, frameW, frameH, this.emaUpdate);
   }
 
-  /**
-   * Handle empty detections (detector ran but found nothing).
-   * Predict forward WITHOUT incrementing lostCounts — treat as missing keyframe.
-   */
   predictEmptyKeyframe(frameW = 1, frameH = 1): TrackedFace[] {
     return this.predict(frameW, frameH);
   }
 
   predict(frameW = 1, frameH = 1): TrackedFace[] {
-    this.tracks = this.tracks.map((t) => kalmanPredict(t));
+    // Predict with lost status if track hasn't been updated recently
+    this.tracks = this.tracks.map((t, i) => {
+      const isLost = (this.lostCounts[i] || 0) > 0;
+      return kalmanPredict(t, 1, isLost);
+    });
     return this.buildResults(this.tracks.map(() => true), this.tracks, frameW, frameH, this.emaPredict);
   }
 
