@@ -153,11 +153,11 @@ async function anonymizeVideoV2(
   const outputCodec = configSupported ? 'avc1.420028' : 'vp09.00.10.08';
   const outputCodecType = configSupported ? 'avc' as const : 'vp9' as const;
 
-  const encodedChunks: EncodedVideoChunk[] = [];
+  const encodedChunks: Array<{ chunk: EncodedVideoChunk; meta?: EncodedVideoChunkMetadata }> = [];
   let encoderError: unknown = null;
 
   const encoder = new VideoEncoder({
-    output: (chunk) => { encodedChunks.push(chunk); },
+    output: (chunk, meta) => { encodedChunks.push({ chunk, meta }); },
     error: (err) => { console.error('VideoEncoder error:', err); encoderError = err; },
   });
   encoder.configure(configSupported ? h264Config : {
@@ -275,9 +275,12 @@ async function anonymizeVideoV2(
   try { await encoder.flush(); } catch { /* ignore */ }
   encoder.close();
 
-  const videoMeta = { decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH } };
+  // Use encoder output metadata for the first packet (includes AVCDecoderConfigurationRecord)
+  const encoderMeta = encodedChunks[0]?.meta;
+  const videoMeta = encoderMeta ?? { decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH } };
+
   let isFirstVideoPacket = true;
-  for (const chunk of encodedChunks) {
+  for (const { chunk } of encodedChunks) {
     if (signal?.aborted) break;
     const data = new Uint8Array(chunk.byteLength);
     chunk.copyTo(data);
