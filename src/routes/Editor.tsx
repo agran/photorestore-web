@@ -12,6 +12,7 @@ import AnonymizeWizard from '@/components/AnonymizeWizard';
 import VideoAnonymizeWizard from '@/components/VideoAnonymizeWizard';
 import { useEditorStore } from '@/store/editorStore';
 import { useAnonymizeStore } from '@/store/anonymizeStore';
+import { useVideoAnonymizeStore } from '@/store/videoAnonymizeStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { downloadImageUrl } from '@/lib/download';
 import { formatDate } from '@/lib/format';
@@ -26,6 +27,7 @@ export default function Editor() {
   const { currentImageUrl, originalImageUrl, setImage, pushHistory } = useEditorStore();
   const { history, restore } = useImageHistory();
   const { reset: resetAnonymize, setModelId } = useAnonymizeStore();
+  const { reset: resetVideoAnonymize } = useVideoAnonymizeStore();
   const { tileSize, tileOverlap } = useSettingsStore();
   const upscaleModels = getModelsByPipeline('upscale');
   const [showWizard, setShowWizard] = useState(false);
@@ -90,6 +92,7 @@ export default function Editor() {
 
   const handleCloseVideoWizard = () => {
     setShowVideoWizard(false);
+    resetVideoAnonymize();
   };
 
   if (showVideoWizard) {

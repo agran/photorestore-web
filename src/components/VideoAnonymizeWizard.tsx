@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Download, X, Settings2 } from 'lucide-react';
 import { Button } from './ui/button';
@@ -82,10 +82,6 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
   const handleDownload = useCallback(() => {
     if (outputUrl) downloadUrl(outputUrl, 'anonymized.webm');
   }, [outputUrl]);
-
-  useEffect(() => {
-    return () => store.reset();
-  }, [store]);
 
   if (step === 'idle') {
     return (
