@@ -133,8 +133,8 @@ Zero-copy where possible: `VideoFrame` / `ImageBitmap` between stages, `Offscree
 
 ### Milestones (reordered after architecture review)
 
-- [ ] v0.7.0: WebCodecs decode/encode + per-frame detection + WebWorker pipeline (proof-of-concept, short clips <10s, no tracking)
-- [ ] v0.7.1: ByteTrack + adaptive keyframes + temporal mask smoothing + scale-invariant effects
+- [x] v0.7.0: WebCodecs decode/encode + per-frame detection + WebWorker pipeline (proof-of-concept, short clips <10s, no tracking)
+- [x] v0.7.1: ByteTrack + adaptive keyframes + temporal mask smoothing + scale-invariant effects
 - [ ] v0.7.2: Audio passthrough (MP4Box + mp4-muxer), ETA, cancel, long video support
 - [ ] v0.7.3: UI — video scrubber, keyframe editor, preview during processing
 - [ ] v0.7.4: [optional] ArcFace re-ID for long occlusions (face descriptor ONNX)
