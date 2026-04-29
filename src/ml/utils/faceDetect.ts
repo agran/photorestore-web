@@ -229,8 +229,13 @@ export function parseScrfdDetections(
       const cellIdx = Math.floor(idx / 2);
       const ax = cellIdx % featW;
       const ay = Math.floor(cellIdx / featW);
-      const cx = (ax + 0.5) * stride;
-      const cy = (ay + 0.5) * stride;
+      // SCRFD anchor centers are at (ax * stride, ay * stride) per insightface
+      // reference implementation (anchor_centers = anchor_centers * stride).
+      // The +0.5 offset would belong to a centroid-style detector (e.g. RetinaFace
+      // anchors) but SCRFD's box decoder expects integer-stride anchors —
+      // adding +0.5 shifts every bbox by stride/2 down and right.
+      const cx = ax * stride;
+      const cy = ay * stride;
       const scale = boxIsPixelSpace ? 1 : stride;
       const dl = bd[idx * 4] * scale;
       const dt = bd[idx * 4 + 1] * scale;
@@ -298,8 +303,11 @@ export function extractScrfdKeypoints(
         const cellIdx = Math.floor(idx / 2);
         const ax = cellIdx % featW;
         const ay = Math.floor(cellIdx / featW);
-        const cx = (ax + 0.5) * stride;
-        const cy = (ay + 0.5) * stride;
+        // SCRFD anchor centers: ax*stride, not (ax+0.5)*stride. See note in
+        // parseScrfdDetections — the +0.5 offset shifts every keypoint by
+        // stride/2 down and right.
+        const cx = ax * stride;
+        const cy = ay * stride;
         const landmarks: { x: number; y: number }[] = [];
         const scale = kpsIsPixelSpace ? 1 : stride;
         for (let k = 0; k < 5; k++) {

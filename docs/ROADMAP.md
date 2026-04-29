@@ -242,6 +242,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - [x] Single-model inference with tiling (overlap 64)
 - [x] NMS deduplication with configurable IoU threshold
 - [x] Face box parsing per model format (SCRFD stride vs pixel-space, etc.)
+- [x] SCRFD anchors: centers at `ax * stride` (not `(ax+0.5) * stride` — fixed per insightface reference) — removes bbox shift by stride/2 down-right
 - [x] Default model SCRFD-10G (was SCRFD-500M) — higher recall on group photos
 
 ### UI and UX
@@ -269,7 +270,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - [x] Mask shapes: rectangle / ellipse (oval default, disabled for emoji)
 - [x] Padding (expand area around face)
 - [x] Feather with proper gradient mask (eroded shape + blur)
-- [x] Super-linear effect strength scaling: `(faceWidth / 100) ^ 1.3` — bigger faces get disproportionately stronger blur/pixelation
+- [x] Clamped-linear effect strength scaling: `max(1, faceWidth / 100)` — constant block count per face ≥100px, small faces don't shrink
 - [x] Pre-Apply preview with the same per-face scaling (`scaleKernel`/`scaleEffectStrength`) — preview matches Apply result
 - [x] Shared `scaleKernel`/`scaleEffectStrength` in `anonymizeEffects.ts` — used by both photo and video pipelines
 - [x] `pixelateSize` default 10 (was 16)
@@ -327,6 +328,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - [x] Single-model inference with tiling (overlap 64)
 - [x] NMS deduplication with configurable IoU threshold
 - [x] Face box parsing per model format (SCRFD stride vs pixel-space, etc.)
+- [x] SCRFD anchors: centers at `ax * stride` (not `(ax+0.5) * stride` — fixed per insightface reference) — removes bbox shift by stride/2 down-right
 - [x] Default model SCRFD-10G (was SCRFD-500M) — higher recall on group photos
 
 ### UI and UX
@@ -354,7 +356,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - [x] Mask shapes: rectangle / ellipse (oval default, disabled for emoji)
 - [x] Padding (expand area around face)
 - [x] Feather with proper gradient mask (eroded shape + blur)
-- [x] Super-linear effect strength scaling: `(faceWidth / 100) ^ 1.3` — bigger faces get disproportionately stronger blur/pixelation
+- [x] Clamped-linear effect strength scaling: `max(1, faceWidth / 100)` — constant block count per face ≥100px, small faces don't shrink
 - [x] Pre-Apply preview with the same per-face scaling (`scaleKernel`/`scaleEffectStrength`) — preview matches Apply result
 - [x] Shared `scaleKernel`/`scaleEffectStrength` in `anonymizeEffects.ts` — used by both photo and video pipelines
 - [x] `pixelateSize` default 10 (was 16)

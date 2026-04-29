@@ -38,22 +38,25 @@ export function scaleKernel(userValue: number, bboxWidth: number): number {
 }
 
 /**
- * Super-linear scale for effect *strength* (blur radius, pixelate block).
- * Bigger faces are inherently more recognizable, so they need a
- * disproportionately stronger effect to be hidden.
+ * Clamped-linear scale for effect *strength* (blur radius, pixelate block).
+ * Linear in face width above the 100px reference, but never shrinks below
+ * the slider value (factor floored at 1). Net effect: roughly constant
+ * block count across the face for any size ≥ 100px, while small faces
+ * still get pixels at slider-size so they look like pixelation, not noise.
  *
- *   factor = (faceWidth / 100) ^ 1.3
+ *   factor = max(1, faceWidth / 100)
  *
- * face=100 → ×1 (slider value preserved)
- * face=200 → ×~2.46 (linear scaling would be ×2)
- * face=400 → ×~6.06 (linear scaling would be ×4)
+ * face=50  → ×1   (slider value preserved — no shrinking)
+ * face=100 → ×1
+ * face=500 → ×5
+ * face=2000 → ×20
  */
 export function scaleEffectStrength(
   userValue: number,
   bboxWidth: number,
   minValue = 1,
 ): number {
-  const factor = Math.pow(bboxWidth / 100, 1.3);
+  const factor = Math.max(1, bboxWidth / 100);
   return Math.max(minValue, Math.round(userValue * factor));
 }
 
@@ -65,10 +68,19 @@ function createCanvas(w: number, h: number): HTMLCanvasElement {
 }
 
 function expandBox(box: FaceBox, padding: number, canvasW: number, canvasH: number): FaceBox {
-  const x = Math.max(0, box.x - padding);
-  const y = Math.max(0, box.y - padding);
-  const w = Math.min(canvasW - x, box.width + padding * 2);
-  const h = Math.min(canvasH - y, box.height + padding * 2);
+  // Symmetric padding: when the face is close to a canvas edge, clamp the
+  // padding on BOTH sides of that axis to the edge distance — otherwise
+  // only one side gets clipped and the expanded box drifts off-center
+  // (visible as masks shifted toward the opposite side, especially with
+  // big-face padding scaling where padding can be 50-100px).
+  const padX = Math.min(padding, box.x, canvasW - box.x - box.width);
+  const padY = Math.min(padding, box.y, canvasH - box.y - box.height);
+  const safePadX = Math.max(0, padX);
+  const safePadY = Math.max(0, padY);
+  const x = box.x - safePadX;
+  const y = box.y - safePadY;
+  const w = box.width + safePadX * 2;
+  const h = box.height + safePadY * 2;
   return { x, y, width: w, height: h, confidence: box.confidence };
 }
 
