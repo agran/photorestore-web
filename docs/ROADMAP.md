@@ -234,14 +234,21 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 ### UI and UX
 
 - [x] Two-step wizard (Detect → Apply effect)
+- [x] Frozen source image (`sourceImageUrl`) — re-applying with new settings always renders from the clean original (no effect stacking)
+- [x] "Open another photo" button in wizard — switch photos without leaving the wizard, with HEIC auto-conversion and effect setting preservation
 - [x] Interactive face overlay — drag, resize, delete, draw new boxes
 - [x] Confidence percentage label on each box
 - [x] Live preview of effects (PreviewCanvas)
 - [x] Before/after comparison slider (BeforeAfterSplit) when preview ON
+- [x] "Revert to original" button in Editor (RotateCcw) — only visible after processing
+- [x] Single-view mode (no BeforeAfterSplit) when no before/after pair exists (fresh photo, unedited)
+- [x] "Open another photo" button in editor footer — full photo replacement (original+current) with HEIC conversion, without leaving the editor
+- [x] History click auto-closes wizard
 - [x] Compact controls: collapsible on mobile, full on desktop
 - [x] Mobile-responsive layout (compact toolbar, horizontal history)
 - [x] Touch support via Pointer Events
 - [x] Progress bar (stage + percentage, positioned top-center on mobile)
+- [x] Shared `imageFile.ts` utility — size validation, HEIC→JPEG, MIME check for Dropzone and "Open another photo" buttons
 
 ### Effect application
 
@@ -306,14 +313,21 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 ### UI and UX
 
 - [x] Two-step wizard (Detect → Apply effect)
+- [x] Frozen source image (`sourceImageUrl`) — re-applying with new settings always renders from the clean original (no effect stacking)
+- [x] "Open another photo" button in wizard — switch photos without leaving the wizard, with HEIC auto-conversion and effect setting preservation
 - [x] Interactive face overlay — drag, resize, delete, draw new boxes
 - [x] Confidence percentage label on each box
 - [x] Live preview of effects (PreviewCanvas)
 - [x] Before/after comparison slider (BeforeAfterSplit) when preview ON
+- [x] "Revert to original" button in Editor (RotateCcw) — only visible after processing
+- [x] Single-view mode (no BeforeAfterSplit) when no before/after pair exists (fresh photo, unedited)
+- [x] "Open another photo" button in editor footer — full photo replacement (original+current) with HEIC conversion, without leaving the editor
+- [x] History click auto-closes wizard
 - [x] Compact controls: collapsible on mobile, full on desktop
 - [x] Mobile-responsive layout (compact toolbar, horizontal history)
 - [x] Touch support via Pointer Events
 - [x] Progress bar (stage + percentage, positioned top-center on mobile)
+- [x] Shared `imageFile.ts` utility — size validation, HEIC→JPEG, MIME check for Dropzone and "Open another photo" buttons
 
 ### Effect application
 

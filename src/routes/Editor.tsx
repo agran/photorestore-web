@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Download, Play, X } from 'lucide-react';
+import { Clock, Download, ImagePlus, Play, RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import Dropzone from '@/components/Dropzone';
@@ -15,6 +15,8 @@ import { useAnonymizeStore } from '@/store/anonymizeStore';
 import { useVideoAnonymizeStore } from '@/store/videoAnonymizeStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { downloadImageUrl } from '@/lib/download';
+import { isHeicFile } from '@/lib/heic';
+import { readImageFile, PHOTO_ACCEPT_ATTR } from '@/lib/imageFile';
 import { formatDate } from '@/lib/format';
 import { useImageHistory } from '@/hooks/useImageHistory';
 import { runPipeline, createDefaultMask, type PipelineType } from '@/ml/pipelineRunner';
@@ -24,9 +26,9 @@ import { toast } from '@/hooks/useToast';
 export default function Editor() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentImageUrl, originalImageUrl, setImage, pushHistory } = useEditorStore();
+  const { currentImageUrl, originalImageUrl, setImage, loadNewImage, pushHistory } = useEditorStore();
   const { history, restore } = useImageHistory();
-  const { reset: resetAnonymize, setModelId } = useAnonymizeStore();
+  const { reset: resetAnonymize, resetForNewImage: resetAnonymizeForNewImage, setModelId, setSourceImageUrl } = useAnonymizeStore();
   const { reset: resetVideoAnonymize, loadFile: loadVideoFile, step: videoStep } = useVideoAnonymizeStore();
   const { tileSize, tileOverlap } = useSettingsStore();
   const upscaleModels = getModelsByPipeline('upscale');
@@ -43,9 +45,12 @@ export default function Editor() {
   }, [videoStep]);
   const [activeTool, setActiveTool] = useState<PipelineType | null>(null);
   const [upscaleModelId, setUpscaleModelId] = useState(upscaleModels[0]?.id ?? '');
+  const [convertingHeic, setConvertingHeic] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSelectTool = (tool: PipelineType) => {
     setShowWizard(false);
+    // Switching to a different tool — drop everything anonymize-related.
     resetAnonymize();
     setActiveTool(tool);
   };
@@ -92,8 +97,11 @@ export default function Editor() {
 
   const handleOpenWizard = (modelId: string) => {
     setActiveTool(null);
-    resetAnonymize();
+    // Preserve effect settings across wizard openings (re-open on a new
+    // photo or after closing should keep blur/padding/effect choice).
+    resetAnonymizeForNewImage();
     setModelId(modelId);
+    setSourceImageUrl(currentImageUrl);
     setShowWizard(true);
   };
 
@@ -104,13 +112,60 @@ export default function Editor() {
 
   const handleCloseWizard = () => {
     setShowWizard(false);
-    resetAnonymize();
+    // Closing the wizard keeps effect settings — only transient state is
+    // cleared so the next open starts fresh on faces but reuses the user's
+    // tuning.
+    resetAnonymizeForNewImage();
   };
 
   const handleCloseVideoWizard = () => {
     setShowVideoWizard(false);
     resetVideoAnonymize();
   };
+
+  const handleHistoryClick = (entry: Parameters<typeof restore>[0]) => {
+    // Restoring history means "show me this result" — auto-close the wizard
+    // so the user lands in the editor's before/after view instead of a
+    // wizard pinned to the previous source image.
+    if (showWizard) handleCloseWizard();
+    restore(entry);
+  };
+
+  const handleRevertToOriginal = () => {
+    if (!originalImageUrl) return;
+    if (showWizard) handleCloseWizard();
+    setImage(originalImageUrl);
+  };
+
+  const canRevertToOriginal =
+    !!originalImageUrl && currentImageUrl !== originalImageUrl;
+
+  const handleOpenAnotherPhoto = () => fileInputRef.current?.click();
+
+  const handleNewPhotoFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.target.files?.[0];
+      e.target.value = '';
+      if (!input) return;
+
+      const willConvert = isHeicFile(input);
+      if (willConvert) setConvertingHeic(true);
+      const result = await readImageFile(input);
+      if (willConvert) setConvertingHeic(false);
+
+      if (!result.ok) {
+        toast({ title: t(result.messageKey), description: result.description, variant: 'destructive' });
+        return;
+      }
+
+      const url = URL.createObjectURL(result.file);
+      // Treat as a fresh photo — clears the prior original/result pair so
+      // before/after and "revert to original" work against the new image.
+      loadNewImage(url);
+      setActiveTool(null);
+    },
+    [loadNewImage, t],
+  );
 
   if (showVideoWizard) {
     return (
@@ -139,6 +194,13 @@ export default function Editor() {
 
   return (
     <div className="container flex h-full min-h-0 flex-col py-1 max-md:px-2 max-md:py-0.5">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={PHOTO_ACCEPT_ATTR}
+        className="sr-only"
+        onChange={(e) => { void handleNewPhotoFile(e); }}
+      />
       <div className="flex flex-1 min-h-0 gap-3 max-md:flex-col max-md:gap-1.5">
         {/* Tools column */}
         <aside className="hidden w-[220px] flex-shrink-0 md:block">
@@ -173,10 +235,16 @@ export default function Editor() {
                   </div>
                 </div>
               )}
-              <BeforeAfterSplit className="flex-1 min-h-0 w-full bg-muted rounded-lg overflow-hidden">
-                <img src={originalImageUrl ?? currentImageUrl} className="h-full w-full object-contain" />
-                <img src={currentImageUrl} className="h-full w-full object-contain" />
-              </BeforeAfterSplit>
+              {canRevertToOriginal ? (
+                <BeforeAfterSplit className="flex-1 min-h-0 w-full bg-muted rounded-lg overflow-hidden">
+                  <img src={originalImageUrl ?? currentImageUrl} className="h-full w-full object-contain" />
+                  <img src={currentImageUrl} className="h-full w-full object-contain" />
+                </BeforeAfterSplit>
+              ) : (
+                <div className="flex-1 min-h-0 w-full bg-muted rounded-lg overflow-hidden">
+                  <img src={currentImageUrl} className="h-full w-full object-contain" />
+                </div>
+              )}
 
               <div className="flex-shrink-0 flex items-center gap-2 border-t pt-2 min-w-0 overflow-hidden">
                 {activeTool ? (
@@ -200,13 +268,36 @@ export default function Editor() {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    className="flex-1 gap-2"
-                    onClick={() => downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))}
-                  >
-                    <Download className="h-4 w-4" />
-                    {t('editor.download')}
-                  </Button>
+                  <>
+                    <Button
+                      variant="outline"
+                      className="gap-2"
+                      onClick={handleOpenAnotherPhoto}
+                      disabled={convertingHeic}
+                      title={t('anonymize.openAnotherPhoto')}
+                    >
+                      <ImagePlus className="h-4 w-4" />
+                      <span className="max-md:hidden">{t('anonymize.openAnotherPhoto')}</span>
+                    </Button>
+                    {canRevertToOriginal && (
+                      <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={handleRevertToOriginal}
+                        title={t('editor.revertToOriginal')}
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        <span className="max-md:hidden">{t('editor.revertToOriginal')}</span>
+                      </Button>
+                    )}
+                    <Button
+                      className="flex-1 gap-2"
+                      onClick={() => downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))}
+                    >
+                      <Download className="h-4 w-4" />
+                      {t('editor.download')}
+                    </Button>
+                  </>
                 )}
               </div>
             </>
@@ -233,7 +324,7 @@ export default function Editor() {
                 >
                   <button
                     className="w-full text-left"
-                    onClick={() => restore(entry)}
+                    onClick={() => handleHistoryClick(entry)}
                   >
                     <img
                       src={entry.imageUrl}
@@ -274,7 +365,7 @@ export default function Editor() {
               <button
                 key={entry.id}
                 className="flex-shrink-0 w-16 rounded border overflow-hidden hover:border-primary transition-colors"
-                onClick={() => restore(entry)}
+                onClick={() => handleHistoryClick(entry)}
                 title={entry.label}
               >
                 <img src={entry.imageUrl} alt={entry.label} className="h-12 w-full object-cover" />

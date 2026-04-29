@@ -65,6 +65,10 @@ function genRandomEmojis(count: number): string[] {
 interface AnonymizeState {
   step: AnonymizeStep;
   faces: FaceBox[];
+  /** URL of the photo the wizard operates on. Frozen at wizard open / "open
+   * another photo" so re-applying with new settings re-renders from the
+   * original source instead of stacking effects on top of a prior result. */
+  sourceImageUrl: string | null;
   effect: AnonymizeEffect;
   blurRadius: number;
   pixelateSize: number;
@@ -80,6 +84,7 @@ interface AnonymizeState {
 
   setStep: (step: AnonymizeStep) => void;
   setFaces: (faces: FaceBox[]) => void;
+  setSourceImageUrl: (url: string | null) => void;
   updateFace: (index: number, box: FaceBox) => void;
   deleteFace: (index: number) => void;
   addFace: (box: FaceBox) => void;
@@ -95,12 +100,17 @@ interface AnonymizeState {
   setFeather: (v: number) => void;
   setMaskShape: (v: MaskShape) => void;
   refreshRandomEmojis: () => void;
+  /** Clear faces + source + step, but keep effect settings. Used when
+   * switching to another photo so the same blur/padding/etc. apply. */
+  resetForNewImage: () => void;
+  /** Full reset to defaults — for leaving the anonymize tool entirely. */
   reset: () => void;
 }
 
 const initialState = {
   step: 'idle' as AnonymizeStep,
   faces: [] as FaceBox[],
+  sourceImageUrl: null as string | null,
   effect: 'pixelate' as AnonymizeEffect,
   blurRadius: 12,
   pixelateSize: 16,
@@ -115,10 +125,27 @@ const initialState = {
   randomEmojis: [] as string[],
 };
 
+// Settings that persist across new-image / close — only effect parameters,
+// not transient UI state.
+const SETTINGS_KEYS = [
+  'effect',
+  'blurRadius',
+  'pixelateSize',
+  'solidColor',
+  'modelId',
+  'emojiInput',
+  'emojiRandom',
+  'padding',
+  'feather',
+  'maskShape',
+] as const;
+
 export const useAnonymizeStore = create<AnonymizeState>((set, get) => ({
   ...initialState,
 
   setStep: (step) => set({ step }),
+
+  setSourceImageUrl: (sourceImageUrl) => set({ sourceImageUrl }),
 
   setFaces: (faces) => {
     const state = get();
@@ -171,6 +198,14 @@ export const useAnonymizeStore = create<AnonymizeState>((set, get) => ({
   refreshRandomEmojis: () => {
     const { emojiRandom, faces } = get();
     if (emojiRandom) set({ randomEmojis: genRandomEmojis(faces.length) });
+  },
+
+  resetForNewImage: () => {
+    const state = get();
+    const preserved = Object.fromEntries(
+      SETTINGS_KEYS.map((k) => [k, state[k]])
+    ) as Pick<AnonymizeState, (typeof SETTINGS_KEYS)[number]>;
+    set({ ...initialState, ...preserved });
   },
 
   reset: () => set(initialState),

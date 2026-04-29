@@ -25,6 +25,10 @@ interface EditorState {
   history: HistoryEntry[];
   activeJob: ProcessingJob | null;
   setImage: (url: string) => void;
+  /** Replace both current and original with a freshly uploaded photo —
+   * unlike setImage which preserves originalImageUrl as the first-ever
+   * load, this is for "I want to start from a different photo". */
+  loadNewImage: (url: string) => void;
   pushHistory: (entry: Omit<HistoryEntry, 'id' | 'timestamp'>) => void;
   revertTo: (id: string) => void;
   setJob: (job: ProcessingJob | null) => void;
@@ -45,6 +49,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       originalImageUrl: originalImageUrl ?? url,
     });
   },
+
+  loadNewImage: (url) =>
+    set({
+      currentImageUrl: url,
+      originalImageUrl: url,
+    }),
 
   pushHistory: (entry) => {
     const id = crypto.randomUUID();

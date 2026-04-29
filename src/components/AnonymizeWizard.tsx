@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Trash2, EyeOff, Settings2, Eye, Download, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Trash2, EyeOff, Settings2, Eye, Download, ChevronDown, ChevronUp, ImagePlus } from 'lucide-react';
 import { Button } from './ui/button';
 import FaceOverlay from './FaceOverlay';
 import PreviewCanvas from './PreviewCanvas';
@@ -10,6 +10,8 @@ import { useEditorStore } from '@/store/editorStore';
 import { getModel, getModelsByPipeline, formatModelSize, modelRuntimeLabel } from '@/ml/modelRegistry';
 import { detectFaces, anonymize as applyAnonymize } from '@/ml/pipelines/anonymize';
 import { downloadImageUrl } from '@/lib/download';
+import { isHeicFile } from '@/lib/heic';
+import { readImageFile, PHOTO_ACCEPT_ATTR } from '@/lib/imageFile';
 import { toast } from '@/hooks/useToast';
 import type { AnonymizeEffect } from '@/ml/utils/anonymizeEffects';
 
@@ -52,19 +54,26 @@ function SliderRow({
 
 export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardProps) {
   const { t } = useTranslation();
-  const { currentImageUrl } = useEditorStore();
+  const { currentImageUrl, loadNewImage } = useEditorStore();
   const store = useAnonymizeStore();
   const {
-    step, faces, effect, blurRadius, pixelateSize, solidColor,
+    step, faces, sourceImageUrl, effect, blurRadius, pixelateSize, solidColor,
     modelId, preview, emojiInput, emojiRandom, padding, feather, maskShape, randomEmojis,
   } = store;
+
+  // The wizard always operates on the frozen source — that's how Apply →
+  // change settings → Apply again produces a clean re-render instead of
+  // stacking effects on top of a previous result.
+  const wizardImageUrl = sourceImageUrl ?? currentImageUrl;
 
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [imgDims, setImgDims] = useState<{ w: number; h: number } | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [convertingHeic, setConvertingHeic] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -78,14 +87,14 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
   }, [isMobile]);
 
   useEffect(() => {
-    if (!currentImageUrl) return;
+    if (!wizardImageUrl) return;
     const img = new Image();
     img.onload = () => setImgDims({ w: img.naturalWidth, h: img.naturalHeight });
-    img.src = currentImageUrl;
-  }, [currentImageUrl]);
+    img.src = wizardImageUrl;
+  }, [wizardImageUrl]);
 
   const handleDetect = useCallback(async () => {
-    if (!currentImageUrl || !imgDims) return;
+    if (!wizardImageUrl || !imgDims) return;
     setBusy(true);
     setProgress(0);
     store.setStep('detecting');
@@ -93,7 +102,7 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
 
     try {
       const img = new Image();
-      img.src = currentImageUrl;
+      img.src = wizardImageUrl;
       await new Promise<void>((r, rej) => { img.onload = () => r(); img.onerror = () => rej(new Error('Load failed')); });
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
@@ -107,15 +116,15 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
       toast({ title: t('errors.pipelineFailed'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
       store.setFaces([]);
     } finally { setBusy(false); }
-  }, [currentImageUrl, imgDims, modelId, t, store]);
+  }, [wizardImageUrl, imgDims, modelId, t, store]);
 
   const handleApply = useCallback(async () => {
-    if (!currentImageUrl || !imgDims || faces.length === 0) return;
+    if (!wizardImageUrl || !imgDims || faces.length === 0) return;
     setBusy(true);
     store.setStep('applying');
     try {
       const img = new Image();
-      img.src = currentImageUrl;
+      img.src = wizardImageUrl;
       await new Promise<void>((r, rej) => { img.onload = () => r(); img.onerror = () => rej(new Error('Load failed')); });
       const canvas = document.createElement('canvas');
       canvas.width = img.naturalWidth;
@@ -145,11 +154,40 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
     } catch (err) {
       toast({ title: t('errors.pipelineFailed'), description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
     } finally { setBusy(false); }
-  }, [currentImageUrl, imgDims, faces, modelId, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, emojiInput, emojiRandom, randomEmojis, store, t, onResult]);
+  }, [wizardImageUrl, imgDims, faces, modelId, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, emojiInput, emojiRandom, randomEmojis, store, t, onResult]);
 
   const handleDeleteAll = () => { store.setFaces([]); store.setPreview(false); };
 
-  if (!currentImageUrl || !imgDims) {
+  const handleOpenAnotherPhoto = () => fileInputRef.current?.click();
+
+  const handleNewFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const input = e.target.files?.[0];
+      e.target.value = '';
+      if (!input) return;
+
+      const willConvert = isHeicFile(input);
+      if (willConvert) setConvertingHeic(true);
+      const result = await readImageFile(input);
+      if (willConvert) setConvertingHeic(false);
+
+      if (!result.ok) {
+        toast({ title: t(result.messageKey), description: result.description, variant: 'destructive' });
+        return;
+      }
+
+      const url = URL.createObjectURL(result.file);
+      // Replace the editor's image (also resets originalImageUrl) and freeze
+      // the new source for the wizard. Effect settings are preserved by
+      // resetForNewImage, only faces/preview/step are cleared.
+      loadNewImage(url);
+      store.resetForNewImage();
+      store.setSourceImageUrl(url);
+    },
+    [loadNewImage, store, t],
+  );
+
+  if (!wizardImageUrl || !imgDims) {
     return (
       <div className="flex h-full items-center justify-center"><p className="text-muted-foreground">{t('editor.empty.title')}</p></div>
     );
@@ -163,7 +201,11 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
       <div className="flex-shrink-0 flex items-center justify-between gap-2 px-3 py-1.5 border-b">
         <span className="text-sm font-medium truncate">{t('anonymize.title')}</span>
         <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon" onClick={() => downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))} title={t('editor.download')}>
+          <Button variant="ghost" size="sm" className="gap-1.5 px-2" onClick={handleOpenAnotherPhoto} disabled={busy || convertingHeic} title={t('anonymize.openAnotherPhoto')}>
+            <ImagePlus className="h-4 w-4" />
+            <span className="hidden sm:inline text-xs">{t('anonymize.openAnotherPhoto')}</span>
+          </Button>
+          <Button variant="ghost" size="icon" onClick={() => currentImageUrl && downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))} disabled={!currentImageUrl} title={t('editor.download')}>
             <Download className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={onClose} title={t('common.close')}>
@@ -172,22 +214,35 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
         </div>
       </div>
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={PHOTO_ACCEPT_ATTR}
+        className="sr-only"
+        onChange={(e) => { void handleNewFile(e); }}
+      />
+
       {/* Body: image + controls */}
       <div className="flex flex-1 flex-col gap-1.5 overflow-hidden p-2 min-h-0">
         {/* IMAGE — takes all available space */}
         <div ref={containerRef} className="relative flex-1 min-h-0 overflow-hidden rounded-lg bg-muted">
+          {convertingHeic && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/70 text-sm">
+              {t('dropzone.convertingHeic')}
+            </div>
+          )}
           {step === 'editing' && preview ? (
             <BeforeAfterSplit className="h-full w-full">
-              <img src={currentImageUrl} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
-              <PreviewCanvas imageUrl={currentImageUrl} imgWidth={imgDims.w} imgHeight={imgDims.h} />
+              <img src={wizardImageUrl} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+              <PreviewCanvas imageUrl={wizardImageUrl} imgWidth={imgDims.w} imgHeight={imgDims.h} />
             </BeforeAfterSplit>
           ) : (
             <>
               {step !== 'editing' && (
-                <img src={currentImageUrl} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
+                <img src={wizardImageUrl} alt="" className="absolute inset-0 w-full h-full object-contain" draggable={false} />
               )}
               {step === 'editing' && !preview && (
-                <FaceOverlay imageUrl={currentImageUrl} imgWidth={imgDims.w} imgHeight={imgDims.h} />
+                <FaceOverlay imageUrl={wizardImageUrl} imgWidth={imgDims.w} imgHeight={imgDims.h} />
               )}
             </>
           )}
