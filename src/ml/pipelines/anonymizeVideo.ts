@@ -287,8 +287,8 @@ async function anonymizeVideoV2(
     const pkt = new EncodedPacket(
       data,
       chunk.type === 'key' ? 'key' : 'delta',
-      chunk.timestamp,
-      chunk.duration ?? 33_333,
+      chunk.timestamp / 1_000_000,           // μs → seconds
+      (chunk.duration ?? 33_333) / 1_000_000, // μs → seconds
     );
     await videoSource.add(pkt, isFirstVideoPacket ? videoMeta : undefined);
     isFirstVideoPacket = false;
