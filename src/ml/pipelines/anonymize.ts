@@ -6,11 +6,9 @@ import {
   prepareScrfdInput,
   prepareRawInput,
   prepareRetinaFaceInput,
-  prepareBlazeFaceInput,
   parseScrfdDetections,
   parseYunetDetections,
   parseRetinaFaceDetections,
-  parseBlazeFaceDetections,
   nms,
   type FaceBox,
   type DetectorOutput,
@@ -21,6 +19,8 @@ import {
   applyPixelate,
   applySolid,
   applyEmoji,
+  scaleKernel,
+  scaleEffectStrength,
   type AnonymizeEffectOptions,
 } from '@/ml/utils/anonymizeEffects';
 
@@ -95,7 +95,6 @@ function prepareTensorData(
   if (modelId.startsWith('scrfd')) return prepareScrfdInput(canvas, inputW, inputH).data as Float32Array;
   if (modelId.startsWith('yunet')) return prepareRawInput(canvas, inputW, inputH).data as Float32Array;
   if (modelId.startsWith('retinaface')) return prepareRetinaFaceInput(canvas, inputW, inputH).data as Float32Array;
-  if (modelId.startsWith('blazeface')) return prepareBlazeFaceInput(canvas, inputW, inputH).data as Float32Array;
   return prepareRawInput(canvas, inputW, inputH).data as Float32Array;
 }
 
@@ -124,11 +123,6 @@ function parseDetections(
       outputs, outputNames, inputW, inputH, canvasW, canvasH, threshold
     ).map((d) => ({ x: d.x, y: d.y, width: d.w, height: d.h, confidence: d.score }));
   }
-  if (modelId.startsWith('blazeface')) {
-    return parseBlazeFaceDetections(
-      outputs, outputNames, canvasW, canvasH
-    ).map((d) => ({ x: d.x, y: d.y, width: d.w, height: d.h, confidence: d.score }));
-  }
   return [];
 }
 
@@ -139,7 +133,7 @@ export async function detectFaces(
   canvas: HTMLCanvasElement,
   options: AnonymizeOptions = {}
 ): Promise<FaceBox[]> {
-  const { modelId = 'scrfd-500m', threshold = 0.5, onProgress } = options;
+  const { modelId = 'scrfd-10g', threshold = 0.5, onProgress } = options;
 
   const model = getModel(modelId);
   if (!model) throw new Error(`Model not found: ${modelId}`);
@@ -263,17 +257,28 @@ export async function anonymize(
   const cW = canvas.width;
   const cH = canvas.height;
 
+  // Slider values are calibrated against a 100px-wide face. Scale per-face
+  // (super-linear for blur radius / pixelate block, linear for padding /
+  // feather) so the effect strength stays visually consistent across face
+  // sizes — same logic as the video pipeline.
   for (let i = 0; i < faces.length; i++) {
     const box = faces[i];
+    const bboxW = box.width;
+    const pad = scaleKernel(resolvedOpts.padding, bboxW);
+    const feather = scaleKernel(resolvedOpts.feather, bboxW);
     switch (resolvedOpts.effect) {
-      case 'blur':
-        applyBlur(ctx, canvas, box, resolvedOpts.blurRadius, resolvedOpts.padding, resolvedOpts.feather, resolvedOpts.maskShape, cW, cH);
+      case 'blur': {
+        const radius = scaleEffectStrength(resolvedOpts.blurRadius, bboxW);
+        applyBlur(ctx, canvas, box, radius, pad, feather, resolvedOpts.maskShape, cW, cH);
         break;
-      case 'pixelate':
-        applyPixelate(ctx, canvas, box, resolvedOpts.pixelateSize, resolvedOpts.padding, resolvedOpts.feather, resolvedOpts.maskShape, cW, cH);
+      }
+      case 'pixelate': {
+        const size = scaleEffectStrength(resolvedOpts.pixelateSize, bboxW, 2);
+        applyPixelate(ctx, canvas, box, size, pad, feather, resolvedOpts.maskShape, cW, cH);
         break;
+      }
       case 'solid':
-        applySolid(ctx, canvas, box, resolvedOpts.solidColor, resolvedOpts.padding, resolvedOpts.feather, resolvedOpts.maskShape, cW, cH);
+        applySolid(ctx, canvas, box, resolvedOpts.solidColor, pad, feather, resolvedOpts.maskShape, cW, cH);
         break;
       case 'emoji':
         applyEmoji(ctx, canvas, box, resolvedOpts.emojis?.[i] || resolvedOpts.emoji, resolvedOpts.padding, 0, 'rect', cW, cH);

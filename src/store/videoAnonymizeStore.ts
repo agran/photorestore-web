@@ -72,7 +72,7 @@ const initialState = {
   blurRadius: 4,
   pixelateSize: 10,
   solidColor: '#000000',
-  modelId: 'scrfd-500m',
+  modelId: 'scrfd-10g',
   padding: 16,
   feather: 4,
   maskShape: 'ellipse' as MaskShape,

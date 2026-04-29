@@ -134,26 +134,6 @@ export function prepareRetinaFaceInput(sourceCanvas: HTMLCanvasElement, inputW: 
   return new ort.Tensor('float32', floatData, [1, 3, inputH, inputW]);
 }
 
-/** BlazeFace: RGB, (pixel/255 - 0.5) / 0.5  =>  pixel/127.5 - 1 */
-export function prepareBlazeFaceInput(sourceCanvas: HTMLCanvasElement, inputW: number, inputH: number): ort.Tensor {
-  const tmp = document.createElement('canvas');
-  tmp.width = inputW;
-  tmp.height = inputH;
-  const ctx = tmp.getContext('2d')!;
-  ctx.drawImage(sourceCanvas, 0, 0, inputW, inputH);
-  const imgData = ctx.getImageData(0, 0, inputW, inputH);
-  const pixels = imgData.data;
-  const chSize = inputH * inputW;
-  const floatData = new Float32Array(3 * chSize);
-
-  for (let i = 0; i < chSize; i++) {
-    floatData[i] = pixels[i * 4] / 127.5 - 1;
-    floatData[chSize + i] = pixels[i * 4 + 1] / 127.5 - 1;
-    floatData[2 * chSize + i] = pixels[i * 4 + 2] / 127.5 - 1;
-  }
-  return new ort.Tensor('float32', floatData, [1, 3, inputH, inputW]);
-}
-
 interface ScrfdOutput {
   score: Float32Array;
   box: Float32Array;
@@ -478,38 +458,4 @@ export function parseRetinaFaceDetections(
   }
 
   return nms(dets, 0.4);
-}
-
-/**
- * Parse BlazeFace detections (NMS built into model, normalized 0-1 coords).
- * Output: [1, N, 16] — ymin, xmin, ymax, xmax, 6 keypoints × 2
- */
-export function parseBlazeFaceDetections(
-  outputs: Record<string, DetectorOutput>,
-  outputNames: string[],
-  canvasW: number,
-  canvasH: number
-): RawDetection[] {
-  const out = outputs[outputNames[0]];
-  const data = out.data;
-  const totalVals = data.length;
-  const numDets = totalVals / 16;
-  const dets: RawDetection[] = [];
-
-  for (let i = 0; i < numDets; i++) {
-    const ymin = data[i * 16] * canvasH;
-    const xmin = data[i * 16 + 1] * canvasW;
-    const ymax = data[i * 16 + 2] * canvasH;
-    const xmax = data[i * 16 + 3] * canvasW;
-    if (xmax - xmin > 1 && ymax - ymin > 1) {
-      dets.push({
-        score: 1.0,
-        x: xmin,
-        y: ymin,
-        w: xmax - xmin,
-        h: ymax - ymin,
-      });
-    }
-  }
-  return dets;
 }

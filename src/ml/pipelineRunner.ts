@@ -12,6 +12,10 @@ export type PipelineType = 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | '
 type PipelineOptions = UpscaleOptions | FaceRestoreOptions | InpaintOptions | DenoiseOptions | AnonymizeOptions;
 
 function loadImageToCanvas(url: string): Promise<HTMLCanvasElement> {
+  // Don't revoke `url` here: it lives in editorStore as currentImageUrl and
+  // (on the first run) doubles as originalImageUrl plus a history entry.
+  // Revoking would kill those references — before/after view and revert-to-
+  // original would render broken images.
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -20,7 +24,6 @@ function loadImageToCanvas(url: string): Promise<HTMLCanvasElement> {
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
       resolve(canvas);
     };
     img.onerror = () => reject(new Error('Failed to load image'));
@@ -51,10 +54,16 @@ function reportProgress(percent: number) {
   useEditorStore.getState().updateJobProgress(Math.min(Math.round(percent), 99));
 }
 
-export async function runPipeline(type: PipelineType, options?: PipelineOptions): Promise<void> {
+export async function runPipeline(
+  type: PipelineType,
+  options?: PipelineOptions,
+  sourceUrlOverride?: string,
+): Promise<void> {
   const store = useEditorStore.getState();
   const settings = useSettingsStore.getState();
-  const imageUrl = store.currentImageUrl;
+  // Caller may force a specific source (e.g. upscale always reads the
+  // pristine original instead of stacking on the previous upscale result).
+  const imageUrl = sourceUrlOverride ?? store.currentImageUrl;
   if (!imageUrl) return;
 
   const jobId = crypto.randomUUID();

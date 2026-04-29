@@ -20,20 +20,26 @@
 ## v0.2 — Реальный апскейл ✅
 
 - [x] Real-ESRGAN x4plus (тайл 128×128, 67 МБ, bukuroo) — WebGPU
-- [x] NMKD Superscale (тайл 128×128, 64 МБ, RRDBNet, сконвертирован pth→ONNX) — WASM
-- [x] 4xNomos8kSC (тайл 128×128, 64 МБ, ONNX от nesaorg) — WASM
-- [x] 4xLSDIR-DAT (тайл 256×256, 62 МБ, архитектура DAT, ONNX от nesaorg) — WASM
+- [x] NMKD Superscale (тайл 128×128, 64→67 МБ, RRDBNet, сконвертирован pth→ONNX) — WebGPU (был WASM, мигрирован на ORT 1.25.1)
+- [x] 4xNomos8kSC (тайл 128×128, 64→67 МБ, ONNX от nesaorg) — WebGPU (был WASM)
+- [x] 4xLSDIR-DAT (тайл 256×256, 62→64 МБ, архитектура DAT, ONNX от nesaorg) — WebGPU (был WASM)
 - [x] Real-CUGAN Up×4 + Real-CUGAN Up×4 Denoise (по 2 МБ) — WebGPU
-- [x] Обновление ONNX Runtime Web до 1.26.0-dev
+- [x] Обновление ONNX Runtime Web до 1.25.1 stable (с 1.26.0-dev)
+- [x] Конвертация ESRGAN-моделей в fp16 (keep_io_types=True) — обход сломанной кодогенерации NHWC Conv-ядер в ORT 1.25.x
+- [x] NCHW-лейаут через `preferredLayout: 'NCHW'` + `graphOptimizationLevel: 'basic'` для ESRGAN-моделей
+- [x] Скрипты `scripts/convert_fp16.py` и `scripts/patch_scrfd_ceil.py` для подготовки моделей
 - [x] Загрузка моделей с CDN (`erudit23.ru/models/`) в production
 - [x] Оптимизация графа Constant → Initializer (требование ORT WebGPU)
-- [x] Флаг `forceWasm` для моделей, несовместимых с WebGPU JSEP
+- [x] Флаг `forceWasm` для моделей, несовместимых с WebGPU JSEP (снят со всех моделей в 1.25.1)
+- [x] Классы скорости (`speedClass`: fast/medium/slow/very-slow) с иконками ⚡⚡⚡/⚡⚡/⚡/🐢 по результатам бенчмарков
 - [x] Воркер инференса (ORT-сессия + тензоры через Comlink)
 - [x] Тайлинг с паддингом под размер модели (пад → инференс → кроп → cosine-window бленд)
 - [x] Прогресс загрузки моделей и потайлового инференса в ProgressBar
 - [x] Авто-детекция WebGPU/WASM с таймаутом 3с
 - [x] Логи в консоль: модель, размер входа, бэкенд
-- [x] Селектор моделей в ToolPanel (выпадающий список всех upscale-моделей)
+- [x] Селектор моделей в ToolPanel (выпадающий список всех upscale-моделей с иконками скорости)
+- [x] Upscale по умолчанию: nomos8ksc (вместо realesrgan-x4plus), всегда из originalImageUrl
+- [x] Бенчмарк-инструмент `window.bench` в dev-режиме: upscale и face-detect модели
 - [x] BrowserRouter basename для маршрутизации на GitHub Pages
 - [x] Vite `base` конфиг для путей ассетов на GitHub Pages
 - [x] GitHub Actions CI + деплой на GitHub Pages (источник: Actions, не ветка)
@@ -170,6 +176,11 @@ MP4/WebM → mediabunny demux → VideoSampleSink (декодированные 
 - **Централизованный singleton:** `inferenceClient.ts` — один общий воркер для face detection + pose estimation. Заменяет per-pipeline управление воркерами.
 - **WebGPU run сериализация:** FIFO-очередь в `inference.worker.ts` — предотвращает ошибки «Session mismatch» при одновременном запуске face detection и pose estimation на одном ORT WebGPU-устройстве
 - **Переиспользование сессий:** одинаковый URL модели → одна сессия. И загрузка модели, и создание сессии — ленивые при первом инференсе.
+- **NCHW-лейаут:** `preferNchw` параметр в `initSession` — для ESRGAN-моделей использует `{ name: 'webgpu', preferredLayout: 'NCHW' }` + `graphOptimizationLevel: 'basic'` вместо сломанного NHWC
+- **Дополнительные входы:** `runMulti` поддерживает `extraInputs` (Float32/Int32/Int64 массивы) — для моделей с несколькими входами (например, baked-in NMS thresholds)
+- **Логирование:** `ort.env.logLevel = 'error'` — подавляет per-call warnings (динамические формы вывода, fallback опов), логируются имена входов/выходов
+- **Уничтожение воркера:** `terminateInferenceWorker()` — пересоздаёт воркер между бенчмарк-моделями, чтобы избежать интерференции WebGPU-сессий
+- **По умолчанию SCRFD-10G** для анонимизации (был SCRFD-500M) — выше полнота детекции, ceil_mode=0 патч под WebGPU
 
 ### Этапы
 
@@ -214,20 +225,21 @@ MP4/WebM → mediabunny demux → VideoSampleSink (декодированные 
 > **Приоритет — максимальная полнота детекции (recall) над скоростью.** Хорошая работа на
 > групповых фото (свадьбы, классы, концерты, толпы).
 
-### Модели (5 детекторов — одномодельная детекция, интерактивная коррекция)
+### Модели (4 детектора — одномодельная детекция, интерактивная коррекция)
 
-- [x] SCRFD-10G-KPS (15.5 МБ, качество, только WASM)
-- [x] SCRFD-500M (2.4 МБ, по умолчанию, WebGPU)
+- [x] SCRFD-10G-KPS (15.5 МБ, качество, WebGPU — ceil_mode=0 патч под ORT 1.25.1, модель по умолчанию)
+- [x] SCRFD-500M (2.4 МБ, лёгкая, WebGPU)
 - [x] YuNet 2023 (0.2 МБ, лёгкая, WebGPU)
 - [x] RetinaFace-MobileNet0.25 (1.7 МБ, профили/occlusion, WebGPU)
-- [x] BlazeFace (0.5 МБ, сверхбыстрая, WebGPU)
-- [x] Селектор модели в мастере + метки рантайма (GPU/CPU · размер)
+- [x] ~~BlazeFace~~ — удалён (не конвертируется в WebGPU, не поддерживается ORT 1.25.x)
+- [x] Селектор модели в мастере + иконки скорости (⚡⚡⚡/⚡⚡/⚡/🐢) по классам из бенчмарков
 
 ### Пайплайн детекции
 
 - [x] Одномодельный инференс с тайлингом (overlap 64)
 - [x] NMS-дедупликация с настраиваемым IoU-порогом
 - [x] Парсинг боксов под формат каждой модели (SCRFD stride vs pixel-space и т.д.)
+- [x] По умолчанию SCRFD-10G (был SCRFD-500M) — выше полнота детекции на групповых фото
 
 ### UI и UX
 

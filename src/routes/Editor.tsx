@@ -44,7 +44,9 @@ export default function Editor() {
     if (videoStep !== 'idle') setShowVideoWizard(true);
   }, [videoStep]);
   const [activeTool, setActiveTool] = useState<PipelineType | null>(null);
-  const [upscaleModelId, setUpscaleModelId] = useState(upscaleModels[0]?.id ?? '');
+  const [upscaleModelId, setUpscaleModelId] = useState(
+    upscaleModels.find((m) => m.id === 'nomos8ksc')?.id ?? upscaleModels[0]?.id ?? '',
+  );
   const [convertingHeic, setConvertingHeic] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,8 +71,13 @@ export default function Editor() {
     if (activeTool === 'upscale') {
       options.modelId = upscaleModelId;
     }
+    // Upscale always runs from the pristine original when one exists —
+    // chaining upscalers compounds artifacts, and the typical reason to
+    // re-trigger upscale is "try another model on the same source".
+    const sourceUrl =
+      activeTool === 'upscale' && originalImageUrl ? originalImageUrl : undefined;
     try {
-      await runPipeline(activeTool, options);
+      await runPipeline(activeTool, options, sourceUrl);
       setActiveTool(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

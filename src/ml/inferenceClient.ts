@@ -18,3 +18,21 @@ export function getInferenceWorker(): Comlink.Remote<InferenceWorkerApi> {
   }
   return workerApi!;
 }
+
+/** Tear down the shared inference worker. Useful for benchmarks that need
+ *  a clean ORT/WebGPU state between models — multiple WebGPU sessions in
+ *  one worker share global device state and can interfere with each other. */
+export async function terminateInferenceWorker(): Promise<void> {
+  if (workerApi) {
+    try {
+      await workerApi.destroy();
+    } catch {
+      // ignore — worker may have already crashed
+    }
+    workerApi = null;
+  }
+  if (worker) {
+    worker.terminate();
+    worker = null;
+  }
+}

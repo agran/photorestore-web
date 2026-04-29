@@ -20,20 +20,26 @@
 ## v0.2 — Real Upscaling ✅
 
 - [x] Real-ESRGAN x4plus (128×128 tile, 67 MB, bukuroo) — WebGPU
-- [x] NMKD Superscale (128×128 tile, 64 MB, RRDBNet, converted pth→ONNX) — WASM
-- [x] 4xNomos8kSC (128×128 tile, 64 MB, nesaorg ONNX) — WASM
-- [x] 4xLSDIR-DAT (256×256 tile, 62 MB, DAT backbone, nesaorg ONNX) — WASM
+- [x] NMKD Superscale (128×128 tile, 64→67 MB, RRDBNet, converted pth→ONNX) — WebGPU (was WASM, migrated on ORT 1.25.1)
+- [x] 4xNomos8kSC (128×128 tile, 64→67 MB, nesaorg ONNX) — WebGPU (was WASM)
+- [x] 4xLSDIR-DAT (256×256 tile, 62→64 MB, DAT backbone, nesaorg ONNX) — WebGPU (was WASM)
 - [x] Real-CUGAN Up×4 + Real-CUGAN Up×4 Denoise (2 MB each) — WebGPU
-- [x] ONNX Runtime Web 1.26.0-dev upgrade
+- [x] ONNX Runtime Web upgraded to 1.25.1 stable (from 1.26.0-dev)
+- [x] ESRGAN models fp16 conversion (keep_io_types=True) — sidesteps broken NHWC Conv kernel codegen in ORT 1.25.x
+- [x] NCHW layout via `preferredLayout: 'NCHW'` + `graphOptimizationLevel: 'basic'` for ESRGAN-style models
+- [x] Scripts `scripts/convert_fp16.py` and `scripts/patch_scrfd_ceil.py` for model preparation
 - [x] CDN-based model loading (`erudit23.ru/models/`) for production
 - [x] Constant → Initializer graph optimization (ORT WebGPU requirement)
-- [x] `forceWasm` flag for models incompatible with WebGPU JSEP
+- [x] `forceWasm` flag for models incompatible with WebGPU JSEP (removed from all models in 1.25.1)
+- [x] Speed classes (`speedClass`: fast/medium/slow/very-slow) with icons ⚡⚡⚡/⚡⚡/⚡/🐢 based on benchmarks
 - [x] Inference worker (ORT session + tensor inference via Comlink)
 - [x] Tiling with model-input padding (pad → infer → crop → cosine-window blend)
 - [x] Model download progress + per-tile inference progress in ProgressBar
 - [x] WebGPU/WASM backend auto-detection with 3s timeout
 - [x] Console logging: model name, input size, backend
-- [x] Model selector in ToolPanel (dropdown with all upscale models)
+- [x] Model selector in ToolPanel (dropdown with speed icons)
+- [x] Default upscale model: nomos8ksc (was realesrgan-x4plus), always from originalImageUrl
+- [x] Benchmark tool `window.bench` in dev mode: upscale and face-detect models
 - [x] BrowserRouter basename for GitHub Pages routing
 - [x] Vite `base` config for GitHub Pages asset paths
 - [x] GitHub Actions CI + GitHub Pages deploy (source: Actions, not branch)
@@ -172,6 +178,11 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - **Centralized singleton:** `inferenceClient.ts` — one shared worker for face detection + pose estimation. Replaces per-pipeline worker management.
 - **WebGPU run serialization:** FIFO queue in `inference.worker.ts` — prevents "Session mismatch" errors when face detection and pose estimation run concurrently on the same ORT WebGPU device
 - **Session reuse:** same model URL → same session. Both model loading and session creation are lazy on first inference.
+- **NCHW layout:** `preferNchw` parameter in `initSession` — ESRGAN models use `{ name: 'webgpu', preferredLayout: 'NCHW' }` + `graphOptimizationLevel: 'basic'` instead of broken NHWC
+- **Extra inputs:** `runMulti` supports `extraInputs` (Float32/Int32/Int64 arrays) — for models with multiple named inputs (e.g. baked-in NMS thresholds)
+- **Logging:** `ort.env.logLevel = 'error'` — silences per-call warnings (dynamic output shapes, op-to-EP fallbacks), logs input/output names
+- **Worker teardown:** `terminateInferenceWorker()` — recreates the worker between benchmark models to prevent WebGPU session interference
+- **Default SCRFD-10G** for anonymization (was SCRFD-500M) — higher detection recall, ceil_mode=0 WebGPU patch
 
 ### Milestones
 
@@ -218,18 +229,19 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 
 ### Models (5 detectors — single-model, interactive correction)
 
-- [x] SCRFD-10G-KPS (15.5 MB, quality, WASM-only)
-- [x] SCRFD-500M (2.4 MB, default, WebGPU) 
+- [x] SCRFD-10G-KPS (15.5 MB, quality, WebGPU — ceil_mode=0 patch for ORT 1.25.1, now the default model)
+- [x] SCRFD-500M (2.4 MB, lightweight, WebGPU)
 - [x] YuNet 2023 (0.2 MB, lightweight, WebGPU)
 - [x] RetinaFace-MobileNet0.25 (1.7 MB, profiles/occlusion, WebGPU)
-- [x] BlazeFace (0.5 MB, ultra-fast, WebGPU)
-- [x] Model selector in wizard + runtime labels (GPU/CPU · size)
+- [x] ~~BlazeFace~~ — removed (doesn't convert to WebGPU, unsupported by ORT 1.25.x)
+- [x] Model selector in wizard + speed icons (⚡⚡⚡/⚡⚡/⚡/🐢) from benchmark classes
 
 ### Detection pipeline
 
 - [x] Single-model inference with tiling (overlap 64)
 - [x] NMS deduplication with configurable IoU threshold
 - [x] Face box parsing per model format (SCRFD stride vs pixel-space, etc.)
+- [x] Default model SCRFD-10G (was SCRFD-500M) — higher recall on group photos
 
 ### UI and UX
 
@@ -297,18 +309,19 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 
 ### Models (5 detectors — single-model, interactive correction)
 
-- [x] SCRFD-10G-KPS (15.5 MB, quality, WASM-only)
-- [x] SCRFD-500M (2.4 MB, default, WebGPU) 
+- [x] SCRFD-10G-KPS (15.5 MB, quality, WebGPU — ceil_mode=0 patch for ORT 1.25.1, now the default model)
+- [x] SCRFD-500M (2.4 MB, lightweight, WebGPU)
 - [x] YuNet 2023 (0.2 MB, lightweight, WebGPU)
 - [x] RetinaFace-MobileNet0.25 (1.7 MB, profiles/occlusion, WebGPU)
-- [x] BlazeFace (0.5 MB, ultra-fast, WebGPU)
-- [x] Model selector in wizard + runtime labels (GPU/CPU · size)
+- [x] ~~BlazeFace~~ — removed (doesn't convert to WebGPU, unsupported by ORT 1.25.x)
+- [x] Model selector in wizard + speed icons (⚡⚡⚡/⚡⚡/⚡/🐢) from benchmark classes
 
 ### Detection pipeline
 
 - [x] Single-model inference with tiling (overlap 64)
 - [x] NMS deduplication with configurable IoU threshold
 - [x] Face box parsing per model format (SCRFD stride vs pixel-space, etc.)
+- [x] Default model SCRFD-10G (was SCRFD-500M) — higher recall on group photos
 
 ### UI and UX
 

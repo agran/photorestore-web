@@ -12,6 +12,13 @@ export interface ModelMeta {
   pipeline: 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | 'anonymize' | 'poseEstimate';
   tags: string[];
   forceWasm?: boolean;
+  /** WebGPU EP: use NCHW layout + basic graph optimization. Workaround for
+   *  ESRGAN-style models whose final 3-channel Conv after PixelShuffle fusion
+   *  fails kernel codegen on the default NHWC path in onnxruntime-web 1.25.x. */
+  preferNchw?: boolean;
+  /** Relative inference speed bucket for the dropdown. Calibrated against
+   *  in-browser benchmarks (see src/dev/benchmark.ts). */
+  speedClass?: 'fast' | 'medium' | 'slow' | 'very-slow';
 }
 
 function modelUrl(filename: string): string {
@@ -33,6 +40,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.realesrgan-x4plus',
     pipeline: 'upscale',
     tags: ['upscale', 'general'],
+    speedClass: 'medium',
   },
   {
     id: 'cugan-up4x',
@@ -45,6 +53,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.cugan-up4x',
     pipeline: 'upscale',
     tags: ['upscale', 'general'],
+    speedClass: 'fast',
   },
   {
     id: 'cugan-up4x-denoise',
@@ -57,42 +66,49 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.cugan-up4x-denoise',
     pipeline: 'upscale',
     tags: ['upscale', 'denoise'],
+    speedClass: 'fast',
   },
   {
     id: 'nmkd-superscale',
     name: 'NMKD Superscale',
     url: modelUrl('nmkd-superscale.onnx'),
-    sizeBytes: 67_049_472,
+    sizeBytes: 67_059_323,
     sha256: '',
     inputShape: [1, 3, 128, 128],
     license: 'BSD-3-Clause',
     descriptionKey: 'models.nmkd-superscale',
     pipeline: 'upscale',
     tags: ['upscale', 'general', 'photo'],
+    preferNchw: true,
+    speedClass: 'slow',
   },
   {
     id: 'nomos8ksc',
     name: '4xNomos8kSC',
     url: modelUrl('nomos8ksc.onnx'),
-    sizeBytes: 67_003_044,
+    sizeBytes: 66_969_936,
     sha256: '',
     inputShape: [1, 3, 128, 128],
     license: 'MIT',
     descriptionKey: 'models.nomos8ksc',
     pipeline: 'upscale',
     tags: ['upscale', 'general', 'photo'],
+    preferNchw: true,
+    speedClass: 'slow',
   },
   {
     id: 'lsdir-dat',
     name: '4xLSDIR-DAT',
     url: modelUrl('lsdir-dat.onnx'),
-    sizeBytes: 64_531_231,
+    sizeBytes: 63_894_856,
     sha256: '',
     inputShape: [1, 3, 256, 256],
     license: 'MIT',
     descriptionKey: 'models.lsdir-dat',
     pipeline: 'upscale',
     tags: ['upscale', 'general', 'photo'],
+    preferNchw: true,
+    speedClass: 'very-slow',
   },
   {
     id: 'gfpgan-v1.4',
@@ -169,7 +185,11 @@ const MODELS: ModelMeta[] = [
   {
     id: 'scrfd-10g',
     name: 'SCRFD-10G-KPS',
-    url: modelUrl('scrfd_10g_gnkps.onnx'),
+    // Patched: AveragePool ceil_mode=1 -> 0 in the 3 ResNet downsample
+    // nodes. ORT 1.25.1 WebGPU EP doesn't implement Pool ops with ceil
+    // mode; for 640x640 input all intermediate shapes are even, so the
+    // patch is mathematically equivalent to the original.
+    url: modelUrl('scrfd_10g_gnkps-nochceil.onnx'),
     sizeBytes: 16_273_449,
     sha256: '',
     inputShape: [1, 3, 640, 640],
@@ -177,6 +197,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.scrfd-10g',
     pipeline: 'anonymize',
     tags: ['face', 'detect', 'kps', 'quality'],
+    speedClass: 'medium',
   },
   {
     id: 'scrfd-500m',
@@ -189,6 +210,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.scrfd-500m',
     pipeline: 'anonymize',
     tags: ['face', 'detect', 'lightweight'],
+    speedClass: 'medium',
   },
   {
     id: 'yunet-2023',
@@ -201,6 +223,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.yunet-2023',
     pipeline: 'anonymize',
     tags: ['face', 'detect', 'lightweight'],
+    speedClass: 'medium',
   },
   {
     id: 'retinaface-mbn025',
@@ -213,18 +236,7 @@ const MODELS: ModelMeta[] = [
     descriptionKey: 'models.retinaface-mbn025',
     pipeline: 'anonymize',
     tags: ['face', 'detect'],
-  },
-  {
-    id: 'blazeface',
-    name: 'BlazeFace',
-    url: modelUrl('blazeface.onnx'),
-    sizeBytes: 534_720,
-    sha256: '',
-    inputShape: [1, 3, 128, 128],
-    license: 'Apache-2.0',
-    descriptionKey: 'models.blazeface',
-    pipeline: 'anonymize',
-    tags: ['face', 'detect', 'lightweight'],
+    speedClass: 'fast',
   },
   {
     id: 'yolo26m-pose',
@@ -261,6 +273,15 @@ export function formatModelSize(bytes: number): string {
   return `${bytes} B`;
 }
 
+const SPEED_ICON: Record<NonNullable<ModelMeta['speedClass']>, string> = {
+  fast: '⚡⚡⚡',
+  medium: '⚡⚡',
+  slow: '⚡',
+  'very-slow': '🐢',
+};
+
 export function modelRuntimeLabel(model: ModelMeta): string {
-  return model.forceWasm ? '💻 CPU' : '⚡ GPU';
+  if (model.forceWasm) return '💻 CPU';
+  if (model.speedClass) return SPEED_ICON[model.speedClass];
+  return '⚡ GPU';
 }

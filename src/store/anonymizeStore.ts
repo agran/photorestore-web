@@ -115,7 +115,7 @@ const initialState = {
   blurRadius: 12,
   pixelateSize: 16,
   solidColor: '#000000',
-  modelId: 'scrfd-500m',
+  modelId: 'scrfd-10g',
   preview: false,
   emojiInput: '😶',
   emojiRandom: false,

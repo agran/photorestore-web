@@ -143,7 +143,6 @@
     "scrfd-500m": "SCRFD-500M — fast lightweight face detector",
     "yunet-2023": "YuNet 2023 — ultra-lightweight face detector (75K params)",
     "retinaface-mbn025": "RetinaFace-MobileNet0.25 — robust to profiles and occlusion",
-    "blazeface": "BlazeFace — fastest detector, best for real-time use",
     "yolo26m-pose": "YOLOv8-Pose — body keypoint detection for face tracking during occlusion"
   },
   "anonymize": {

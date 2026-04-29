@@ -22,7 +22,7 @@ export default function ToolPanel({ onAnonymize, onSelectTool, compact }: ToolPa
       { icon: <User className="h-4 w-4" />, label: t('editor.tools.faceRestoreShort'), action: () => onSelectTool?.('faceRestore'), disabled: true },
       { icon: <Brush className="h-4 w-4" />, label: t('editor.tools.inpaintShort'), action: () => onSelectTool?.('inpaint'), disabled: true },
       { icon: <Wand2 className="h-4 w-4" />, label: t('editor.tools.denoiseShort'), action: () => onSelectTool?.('denoise'), disabled: true },
-      { icon: <EyeOff className="h-4 w-4" />, label: t('editor.tools.anonymizeShort'), action: () => onAnonymize?.('scrfd-500m') },
+      { icon: <EyeOff className="h-4 w-4" />, label: t('editor.tools.anonymizeShort'), action: () => onAnonymize?.('scrfd-10g') },
     ];
     return (
       <div className="flex justify-center gap-0.5">
@@ -96,7 +96,7 @@ export default function ToolPanel({ onAnonymize, onSelectTool, compact }: ToolPa
           size="sm"
           className="w-full justify-start gap-2"
           disabled={isRunning}
-          onClick={() => onAnonymize?.('scrfd-500m')}
+          onClick={() => onAnonymize?.('scrfd-10g')}
         >
           <EyeOff className="h-4 w-4" />
           {t('editor.tools.anonymize')}

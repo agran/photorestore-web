@@ -22,6 +22,9 @@ function serializeRun<T>(fn: () => Promise<T>): Promise<T> {
 function setupRuntime(numThreads: number, enableSIMD: boolean) {
   ort.env.wasm.numThreads = numThreads;
   ort.env.wasm.simd = enableSIMD;
+  // Silence ORT's per-call warnings — they're often harmless (dynamic
+  // output shapes, op-to-EP fallbacks) but spam a stacktrace per tile.
+  ort.env.logLevel = 'error';
 }
 
 async function detectBackend(): Promise<BackendType> {
@@ -45,18 +48,28 @@ async function detectBackend(): Promise<BackendType> {
 }
 
 export interface InferenceWorkerApi {
-  initSession(modelBuffer: ArrayBuffer, modelUrl: string, backend: BackendType): Promise<BackendType>;
+  initSession(
+    modelBuffer: ArrayBuffer,
+    modelUrl: string,
+    backend: BackendType,
+    preferNchw?: boolean
+  ): Promise<BackendType>;
   run(inputTensor: Float32Array, inputShape: number[], modelUrl: string): Promise<Float32Array>;
   runMulti(
     inputTensor: Float32Array,
     inputShape: number[],
-    modelUrl: string
+    modelUrl: string,
+    /** Extra named inputs (for models with multiple inputs like baked-in NMS thresholds). */
+    extraInputs?: Record<
+      string,
+      { data: Float32Array | Int32Array | BigInt64Array; dims: number[] }
+    >
   ): Promise<Record<string, { data: Float32Array; dims: number[] }>>;
   destroy(): Promise<void>;
 }
 
 const api: InferenceWorkerApi = {
-  async initSession(modelBuffer, modelUrl, backend) {
+  async initSession(modelBuffer, modelUrl, backend, preferNchw) {
     if (sessions.has(modelUrl)) return backend;
 
     console.log('[ORT] Detecting backend...');
@@ -71,13 +84,18 @@ const api: InferenceWorkerApi = {
 
     setupRuntime(4, true);
     console.log('[ORT] Creating InferenceSession...');
+    const webgpuEp = preferNchw
+      ? { name: 'webgpu' as const, preferredLayout: 'NCHW' as const }
+      : ('webgpu' as const);
     const session = await ort.InferenceSession.create(modelBuffer, {
-      executionProviders: effectiveBackend === 'webgpu' ? ['webgpu', 'wasm'] : ['wasm'],
-      graphOptimizationLevel: 'all',
+      executionProviders: effectiveBackend === 'webgpu' ? [webgpuEp, 'wasm'] : ['wasm'],
+      graphOptimizationLevel: preferNchw ? 'basic' : 'all',
     });
     console.log('[ORT] Session created');
 
     sessions.set(modelUrl, session);
+    console.log(`[ORT] Inputs: ${session.inputNames.join(', ')}`);
+    console.log(`[ORT] Outputs: ${session.outputNames.join(', ')}`);
     return effectiveBackend;
   },
 
@@ -100,7 +118,7 @@ const api: InferenceWorkerApi = {
     });
   },
 
-  async runMulti(inputTensor, inputShape, modelUrl) {
+  async runMulti(inputTensor, inputShape, modelUrl, extraInputs) {
     const session = sessions.get(modelUrl);
     if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
 
@@ -110,6 +128,17 @@ const api: InferenceWorkerApi = {
       const feeds: Record<string, ort.Tensor> = {
         [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
       };
+      if (extraInputs) {
+        for (const [name, { data, dims }] of Object.entries(extraInputs)) {
+          if (data instanceof Float32Array) {
+            feeds[name] = new ort.Tensor('float32', data, dims);
+          } else if (data instanceof Int32Array) {
+            feeds[name] = new ort.Tensor('int32', data, dims);
+          } else {
+            feeds[name] = new ort.Tensor('int64', data, dims);
+          }
+        }
+      }
 
       const results = await session.run(feeds);
 

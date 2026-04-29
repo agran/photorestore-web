@@ -76,7 +76,7 @@ export async function upscale(
   options: UpscaleOptions = {}
 ): Promise<UpscaleResult> {
   const start = performance.now();
-  const { modelId = 'realesrgan-x4plus', tileOverlap = 8 } = options;
+  const { modelId = 'nomos8ksc', tileOverlap = 8 } = options;
 
   const model = getModel(modelId);
   if (!model) throw new Error(`Model not found: ${modelId}`);
@@ -94,7 +94,12 @@ export async function upscale(
   const api = getWorker();
   console.log('[Upscale] Creating worker session...');
   const preferredBackend = model.forceWasm ? 'wasm' : 'webgpu';
-  const backend = await api.initSession(Comlink.transfer(modelBuffer, [modelBuffer]), model.url, preferredBackend);
+  const backend = await api.initSession(
+    Comlink.transfer(modelBuffer, [modelBuffer]),
+    model.url,
+    preferredBackend,
+    model.preferNchw
+  );
   console.log(`[Upscale] Session ready, backend: ${backend}`);
   options.onProgress?.(25);
   console.log(
