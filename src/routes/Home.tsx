@@ -66,14 +66,14 @@ export default function Home() {
   };
 
   return (
-    <div className="container py-12 md:py-20">
+    <div className="container py-8 md:py-12">
       {/* Hero */}
       <section className="mx-auto max-w-3xl text-center">
         <h1 className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
           {t('home.heroTitle')}
         </h1>
         <p className="mt-4 text-lg text-muted-foreground sm:text-xl">{t('home.heroSubtitle')}</p>
-        <div className="mt-8 flex items-center justify-center gap-4">
+        <div className="mt-6 flex items-center justify-center gap-4">
           <Button size="lg" onClick={() => void navigate('/editor')}>
             {t('home.goToEditor')}
           </Button>
@@ -84,12 +84,12 @@ export default function Home() {
       </section>
 
       {/* Drop zone */}
-      <section className="mx-auto mt-12 max-w-2xl">
-        <Dropzone onFile={handleFile} className="min-h-[200px] md:min-h-[280px]" />
+      <section className="mx-auto mt-8 max-w-2xl">
+        <Dropzone onFile={handleFile} className="min-h-[180px] md:min-h-[240px]" />
       </section>
 
       {/* Features */}
-      <section className="mx-auto mt-16 max-w-5xl">
+      <section className="mx-auto mt-10 max-w-5xl">
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {FEATURES.map((f) => (
             <Card key={f.titleKey}>

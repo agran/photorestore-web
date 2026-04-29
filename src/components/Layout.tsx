@@ -20,7 +20,7 @@ export default function Layout() {
   return (
     <div className="grid h-full" style={{ gridTemplateRows: 'auto 1fr auto' }}>
       <Header />
-      <main className="min-h-0">
+      <main className="min-h-0 overflow-auto">
         <Outlet />
       </main>
       <Footer />
