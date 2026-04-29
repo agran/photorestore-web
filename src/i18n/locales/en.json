@@ -166,6 +166,11 @@
     "ellipse": "Oval",
     "videoTitle": "Video: Hide Faces",
     "videoUploadHint": "Upload a video to hide faces",
-    "videoChoose": "Choose Video"
+    "videoChoose": "Choose Video",
+    "quality": "Quality",
+    "quality_accurate": "Accurate",
+    "quality_accurate_hint": "Detect faces every frame — no gaps when faces appear, slower processing",
+    "quality_fast": "Fast",
+    "quality_fast_hint": "Adaptive detection (every 5–60 frames) — faster, but newly-appearing faces may stay uncovered briefly"
   }
 }

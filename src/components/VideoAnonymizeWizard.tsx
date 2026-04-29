@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Download, X, Settings2, Square } from 'lucide-react';
 import { Button } from './ui/button';
-import { useVideoAnonymizeStore } from '@/store/videoAnonymizeStore';
+import { useVideoAnonymizeStore, type VideoAnonymizeQuality } from '@/store/videoAnonymizeStore';
 import { getModelsByPipeline, formatModelSize, modelRuntimeLabel } from '@/ml/modelRegistry';
 import { anonymizeVideo } from '@/ml/pipelines/anonymizeVideo';
 import { downloadUrl } from '@/lib/download';
@@ -26,7 +26,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     step, videoUrl, duration, fps, width, height,
     effect, blurRadius, pixelateSize, solidColor,
     modelId, padding, feather, maskShape, progress,
-    outputUrl, emojiInput, emojiRandom,
+    outputUrl, emojiInput, emojiRandom, quality,
   } = store;
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -68,6 +68,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     try {
       const blob = await anonymizeVideo(file, {
         modelId,
+        quality,
         effectOptions: {
           effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape,
           emoji: emojiInput || '😶',
@@ -91,7 +92,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
       setIsProcessing(false);
       abortRef.current = null;
     }
-  }, [store, modelId, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, emojiInput, t]);
+  }, [store, modelId, quality, effect, blurRadius, pixelateSize, solidColor, padding, feather, maskShape, emojiInput, t]);
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
@@ -194,6 +195,24 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
                 <select className="h-9 w-full rounded-md border border-input bg-background px-2 text-xs" value={modelId} onChange={(e) => store.setModelId(e.target.value)} disabled={isProcessing}>
                   {anonymizeModels.map((m) => <option key={m.id} value={m.id}>{m.name} · {modelRuntimeLabel(m)} · {formatModelSize(m.sizeBytes)}</option>)}
                 </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground shrink-0">{t('anonymize.quality')}</span>
+              <div className="inline-flex rounded-md border border-input overflow-hidden">
+                {(['accurate', 'fast'] as VideoAnonymizeQuality[]).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => store.setQuality(q)}
+                    className={`h-7 px-3 text-xs transition-colors ${quality === q ? 'bg-primary text-primary-foreground' : 'bg-background hover:bg-accent'} disabled:opacity-50`}
+                    title={t(`anonymize.quality_${q}_hint`)}
+                  >
+                    {t(`anonymize.quality_${q}`)}
+                  </button>
+                ))}
               </div>
             </div>
 

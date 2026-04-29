@@ -18,10 +18,17 @@ import {
   type AudioCodec,
 } from 'mediabunny';
 
+export type VideoAnonymizeQuality = 'fast' | 'accurate';
+
 export interface VideoAnonymizeOptions {
   effectOptions: AnonymizeEffectOptions;
   modelId: string;
-  detectionInterval?: number;
+  /**
+   * 'accurate' (default): detect every frame — no gaps when faces appear, slower.
+   * 'fast': adaptive detection (5–60 frame interval) — faster, but newly-appearing
+   * faces may be uncovered for up to ~2 seconds until the next detection keyframe.
+   */
+  quality?: VideoAnonymizeQuality;
   onProgress?: (percent: number) => void;
   onEta?: (etaSec: number) => void;
   signal?: AbortSignal;
@@ -115,7 +122,7 @@ async function anonymizeVideoV2(
   file: File,
   options: VideoAnonymizeOptions,
 ): Promise<Blob> {
-  const { effectOptions, modelId, detectionInterval = 30, onProgress, onEta, signal } = options;
+  const { effectOptions, modelId, quality = 'accurate', onProgress, onEta, signal } = options;
   const resolvedOpts = resolveEffectOptions(effectOptions);
   const useScaleInvariant = true;
 
@@ -190,9 +197,11 @@ async function anonymizeVideoV2(
   let frameIndex = 0;
   const trackEmojis = new Map<number, string>();
   let nextDetectionFrame = 0;
-  let detectionIntervalAdaptive = detectionInterval;
-  const minInterval = 5;
-  const maxInterval = 60;
+  // 'accurate' = detect every frame (interval pinned to 1).
+  // 'fast' = adaptive 5–60, starting at 30 (legacy behaviour).
+  let detectionIntervalAdaptive = quality === 'accurate' ? 1 : 30;
+  const minInterval = quality === 'accurate' ? 1 : 5;
+  const maxInterval = quality === 'accurate' ? 1 : 60;
 
   const sampleIterator = videoSink.samples();
   let sampleResult = await sampleIterator.next();
@@ -322,7 +331,7 @@ async function anonymizeVideoFallback(
   file: File,
   options: VideoAnonymizeOptions,
 ): Promise<Blob> {
-  const { effectOptions, modelId, detectionInterval = 30, onProgress } = options;
+  const { effectOptions, modelId, quality = 'accurate', onProgress } = options;
   const resolvedOpts = resolveEffectOptions(effectOptions);
   const useScaleInvariant = true;
 
@@ -368,9 +377,9 @@ async function anonymizeVideoFallback(
 
   const tracker = new FaceTracker();
   let nextDetectionFrame = 0;
-  let dInterval = detectionInterval;
-  const minInterval = 5;
-  const maxInterval = 60;
+  let dInterval = quality === 'accurate' ? 1 : 30;
+  const minInterval = quality === 'accurate' ? 1 : 5;
+  const maxInterval = quality === 'accurate' ? 1 : 60;
   const trackEmojis = new Map<number, string>();
 
   function seekToFrame(v: HTMLVideoElement, frameIndex: number): Promise<void> {

@@ -2,6 +2,7 @@ import type { AnonymizeEffect, MaskShape } from '@/ml/utils/anonymizeEffects';
 import { create } from 'zustand';
 
 export type VideoAnonymizeStep = 'idle' | 'loaded' | 'processing' | 'done';
+export type VideoAnonymizeQuality = 'fast' | 'accurate';
 
 interface VideoAnonymizeState {
   step: VideoAnonymizeStep;
@@ -22,6 +23,7 @@ interface VideoAnonymizeState {
   maskShape: MaskShape;
   emojiInput: string;
   emojiRandom: boolean;
+  quality: VideoAnonymizeQuality;
   progress: number;
   aborted: boolean;
   startTime: number;
@@ -40,6 +42,7 @@ interface VideoAnonymizeState {
   setMaskShape: (v: MaskShape) => void;
   setEmojiInput: (v: string) => void;
   setEmojiRandom: (v: boolean) => void;
+  setQuality: (v: VideoAnonymizeQuality) => void;
   setProgress: (p: number) => void;
   setAborted: (v: boolean) => void;
   setStartTime: (t: number) => void;
@@ -66,6 +69,7 @@ const initialState = {
   maskShape: 'ellipse' as MaskShape,
   emojiInput: '😶',
   emojiRandom: true,
+  quality: 'accurate' as VideoAnonymizeQuality,
   progress: 0,
   aborted: false,
   startTime: 0,
@@ -88,6 +92,7 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set) => ({
   setMaskShape: (maskShape) => set({ maskShape }),
   setEmojiInput: (emojiInput) => set({ emojiInput }),
   setEmojiRandom: (emojiRandom) => set({ emojiRandom }),
+  setQuality: (quality) => set({ quality }),
   setProgress: (progress) => set({ progress }),
   setAborted: (aborted) => set({ aborted }),
   setStartTime: (startTime) => set({ startTime }),
