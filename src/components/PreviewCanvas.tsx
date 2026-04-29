@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useAnonymizeStore } from '@/store/anonymizeStore';
-import { applyBlur, applyPixelate, applySolid, applyEmoji } from '@/ml/utils/anonymizeEffects';
+import {
+  applyBlur,
+  applyPixelate,
+  applySolid,
+  applyEmoji,
+  scaleKernel,
+  scaleEffectStrength,
+} from '@/ml/utils/anonymizeEffects';
 import type { FaceBox } from '@/ml/utils/faceDetect';
 
 interface PreviewCanvasProps {
@@ -39,19 +46,29 @@ export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: Preview
       const ctx = canvas.getContext('2d')!;
       ctx.drawImage(img, 0, 0, imgWidth, imgHeight);
 
+      // Match the pipeline: slider values are calibrated against a 100px-
+      // wide face and scaled per face so the preview reflects the same
+      // strength the user will see after Apply.
       for (let i = 0; i < faces.length; i++) {
         if (cancelled) break;
         const box: FaceBox = faces[i];
+        const bboxW = box.width;
+        const scaledPad = scaleKernel(padding, bboxW);
+        const scaledFeather = scaleKernel(feather, bboxW);
 
         switch (effect) {
-          case 'blur':
-            applyBlur(ctx, canvas, box, blurRadius, padding, feather, maskShape, imgWidth, imgHeight);
+          case 'blur': {
+            const radius = scaleEffectStrength(blurRadius, bboxW);
+            applyBlur(ctx, canvas, box, radius, scaledPad, scaledFeather, maskShape, imgWidth, imgHeight);
             break;
-          case 'pixelate':
-            applyPixelate(ctx, canvas, box, pixelateSize, padding, feather, maskShape, imgWidth, imgHeight);
+          }
+          case 'pixelate': {
+            const size = scaleEffectStrength(pixelateSize, bboxW, 2);
+            applyPixelate(ctx, canvas, box, size, scaledPad, scaledFeather, maskShape, imgWidth, imgHeight);
             break;
+          }
           case 'solid':
-            applySolid(ctx, canvas, box, solidColor, padding, feather, maskShape, imgWidth, imgHeight);
+            applySolid(ctx, canvas, box, solidColor, scaledPad, scaledFeather, maskShape, imgWidth, imgHeight);
             break;
           case 'emoji':
             applyEmoji(ctx, canvas, box, store.randomEmojis[i] || emojiInput || '😶', padding, 0, 'rect', imgWidth, imgHeight);

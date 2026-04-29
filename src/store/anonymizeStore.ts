@@ -113,7 +113,7 @@ const initialState = {
   sourceImageUrl: null as string | null,
   effect: 'pixelate' as AnonymizeEffect,
   blurRadius: 12,
-  pixelateSize: 16,
+  pixelateSize: 10,
   solidColor: '#000000',
   modelId: 'scrfd-10g',
   preview: false,

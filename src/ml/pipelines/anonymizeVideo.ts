@@ -6,6 +6,8 @@ import {
   applyPixelate,
   applySolid,
   applyEmoji,
+  scaleKernel,
+  scaleEffectStrength,
   type AnonymizeEffectOptions,
 } from '@/ml/utils/anonymizeEffects';
 import { FaceTracker, type TrackedFace } from '@/ml/tracking/faceTracker';
@@ -44,26 +46,6 @@ function canvasFromCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const ctx = canvas.getContext('2d')!;
   ctx.drawImage(source, 0, 0);
   return canvas;
-}
-
-function scaleKernel(userValue: number, bboxWidth: number): number {
-  return Math.max(1, Math.round(userValue * (bboxWidth / 100)));
-}
-
-/**
- * Scaling for effect *strength* (blur radius, pixelate block size).
- * Super-linear — bigger faces are inherently more recognizable, so they need
- * a disproportionately stronger effect to be hidden.
- *
- *   factor = (faceWidth / 100) ^ 1.3
- *
- * face=100 → ×1 (slider value preserved)
- * face=200 → ×~2.46 (linear scaling would be ×2)
- * face=400 → ×~6.06 (linear scaling would be ×4)
- */
-function scaleEffectStrength(userValue: number, bboxWidth: number, minValue = 1): number {
-  const factor = Math.pow(bboxWidth / 100, 1.3);
-  return Math.max(minValue, Math.round(userValue * factor));
 }
 
 function applyEffect(

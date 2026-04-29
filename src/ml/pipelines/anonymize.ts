@@ -50,6 +50,28 @@ function padCanvas(canvas: HTMLCanvasElement, targetW: number, targetH: number):
   return padded;
 }
 
+/** Letterbox the whole source into targetW×targetH, preserving aspect ratio.
+ *  Returns the canvas plus the transform needed to map model-space bboxes
+ *  back to source-image coordinates. Used for the global-scale detection
+ *  pass that catches big portraits which span multiple tiles. */
+function fitCanvasLetterbox(
+  source: HTMLCanvasElement,
+  targetW: number,
+  targetH: number,
+): { canvas: HTMLCanvasElement; scale: number; offsetX: number; offsetY: number } {
+  const scale = Math.min(targetW / source.width, targetH / source.height);
+  const drawW = Math.round(source.width * scale);
+  const drawH = Math.round(source.height * scale);
+  const offsetX = Math.floor((targetW - drawW) / 2);
+  const offsetY = Math.floor((targetH - drawH) / 2);
+  const c = document.createElement('canvas');
+  c.width = targetW;
+  c.height = targetH;
+  const ctx = c.getContext('2d')!;
+  ctx.drawImage(source, 0, 0, source.width, source.height, offsetX, offsetY, drawW, drawH);
+  return { canvas: c, scale, offsetX, offsetY };
+}
+
 interface TileBox {
   tileX: number;
   tileY: number;
@@ -154,8 +176,50 @@ export async function detectFaces(
   onProgress?.(25);
   console.log(`[Anonymize] Model: ${model.name}, Backend: ${backend.toUpperCase()}`);
 
-  const tiles = splitDetectionTiles(canvas, inputW, inputH, 64);
   const allFaces: FaceBox[] = [];
+
+  // Global pass: letterbox the whole image into the model input. This catches
+  // large faces (portraits) that would otherwise span multiple 640×640 tiles
+  // and never fit any single tile or any anchor scale.
+  if (canvas.width > inputW || canvas.height > inputH) {
+    const fit = fitCanvasLetterbox(canvas, inputW, inputH);
+    const tensorData = prepareTensorData(fit.canvas, modelId, inputW, inputH);
+
+    const outputRecord = await api.runMulti(
+      Comlink.transfer(tensorData, [tensorData.buffer]),
+      [1, 3, inputH, inputW],
+      model.url
+    );
+    const outputNames = Object.keys(outputRecord);
+    const outputs: Record<string, DetectorOutput> = {};
+    for (const [name, { data, dims }] of Object.entries(outputRecord)) {
+      outputs[name] = { data, dims };
+    }
+
+    const globalFaces = parseDetections(
+      modelId, outputs, outputNames,
+      inputW, inputH, inputW, inputH, threshold
+    );
+
+    for (const f of globalFaces) {
+      // Translate from model space back to source-image coordinates.
+      const x = (f.x - fit.offsetX) / fit.scale;
+      const y = (f.y - fit.offsetY) / fit.scale;
+      const w = f.width / fit.scale;
+      const h = f.height / fit.scale;
+      if (w < 8 || h < 8) continue;
+      allFaces.push({
+        x: Math.max(0, x),
+        y: Math.max(0, y),
+        width: Math.min(canvas.width - Math.max(0, x), w),
+        height: Math.min(canvas.height - Math.max(0, y), h),
+        confidence: f.confidence,
+      });
+    }
+    console.log(`[Anonymize] Global pass: ${globalFaces.length} face(s) detected`);
+  }
+
+  const tiles = splitDetectionTiles(canvas, inputW, inputH, 64);
 
   for (let i = 0; i < tiles.length; i++) {
     const tile = tiles[i];

@@ -31,6 +31,32 @@ export function resolveEffectOptions(opts: AnonymizeEffectOptions): Required<Ano
   return { ...DEFAULT_OPTIONS, ...opts };
 }
 
+/** Linear scale of a kernel-like value (padding, feather) to face size.
+ *  Slider values are calibrated against a 100px-wide face. */
+export function scaleKernel(userValue: number, bboxWidth: number): number {
+  return Math.max(1, Math.round(userValue * (bboxWidth / 100)));
+}
+
+/**
+ * Super-linear scale for effect *strength* (blur radius, pixelate block).
+ * Bigger faces are inherently more recognizable, so they need a
+ * disproportionately stronger effect to be hidden.
+ *
+ *   factor = (faceWidth / 100) ^ 1.3
+ *
+ * face=100 → ×1 (slider value preserved)
+ * face=200 → ×~2.46 (linear scaling would be ×2)
+ * face=400 → ×~6.06 (linear scaling would be ×4)
+ */
+export function scaleEffectStrength(
+  userValue: number,
+  bboxWidth: number,
+  minValue = 1,
+): number {
+  const factor = Math.pow(bboxWidth / 100, 1.3);
+  return Math.max(minValue, Math.round(userValue * factor));
+}
+
 function createCanvas(w: number, h: number): HTMLCanvasElement {
   const c = document.createElement('canvas');
   c.width = w;
