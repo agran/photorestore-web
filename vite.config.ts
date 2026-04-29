@@ -17,6 +17,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['onnxruntime-web'],
   },
+  appType: 'spa',
   server: {
     headers: {
       // Required for SharedArrayBuffer / WASM threads
