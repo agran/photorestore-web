@@ -163,6 +163,9 @@
     "feather": "Мягкий край",
     "preview": "Предпросмотр",
     "emojiRandom": "Случайный",
-    "ellipse": "Овал"
+    "ellipse": "Овал",
+    "videoTitle": "Видео: Скрыть лица",
+    "videoUploadHint": "Загрузите видео для скрытия лиц",
+    "videoChoose": "Выбрать видео"
   }
 }

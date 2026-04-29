@@ -163,6 +163,9 @@
     "feather": "Feather",
     "preview": "Preview",
     "emojiRandom": "Random",
-    "ellipse": "Oval"
+    "ellipse": "Oval",
+    "videoTitle": "Video: Hide Faces",
+    "videoUploadHint": "Upload a video to hide faces",
+    "videoChoose": "Choose Video"
   }
 }

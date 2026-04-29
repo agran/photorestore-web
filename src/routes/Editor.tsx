@@ -9,6 +9,7 @@ import BeforeAfterSplit from '@/components/BeforeAfterSplit';
 import ToolPanel from '@/components/ToolPanel';
 import ProgressBar from '@/components/ProgressBar';
 import AnonymizeWizard from '@/components/AnonymizeWizard';
+import VideoAnonymizeWizard from '@/components/VideoAnonymizeWizard';
 import { useEditorStore } from '@/store/editorStore';
 import { useAnonymizeStore } from '@/store/anonymizeStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -28,6 +29,7 @@ export default function Editor() {
   const { tileSize, tileOverlap } = useSettingsStore();
   const upscaleModels = getModelsByPipeline('upscale');
   const [showWizard, setShowWizard] = useState(false);
+  const [showVideoWizard, setShowVideoWizard] = useState(false);
   const [activeTool, setActiveTool] = useState<PipelineType | null>(null);
   const [upscaleModelId, setUpscaleModelId] = useState(upscaleModels[0]?.id ?? '');
 
@@ -82,6 +84,22 @@ export default function Editor() {
     resetAnonymize();
   };
 
+  const handleOpenVideoWizard = () => {
+    setShowVideoWizard(true);
+  };
+
+  const handleCloseVideoWizard = () => {
+    setShowVideoWizard(false);
+  };
+
+  if (showVideoWizard) {
+    return (
+      <div className="container flex h-full min-h-0 flex-col py-1 max-md:px-2 max-md:py-0.5">
+        <VideoAnonymizeWizard onClose={handleCloseVideoWizard} />
+      </div>
+    );
+  }
+
   if (!currentImageUrl) {
     return (
       <div className="container flex flex-col items-center justify-center py-24 text-center">
@@ -102,14 +120,14 @@ export default function Editor() {
       <div className="flex flex-1 min-h-0 gap-3 max-md:flex-col max-md:gap-1.5">
         {/* Tools column */}
         <aside className="hidden w-[220px] flex-shrink-0 md:block">
-          <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} />
+          <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} onAnonymizeVideo={handleOpenVideoWizard} />
         </aside>
 
         {/* Canvas column */}
         <section className="flex min-h-0 flex-1 flex-col gap-3 max-md:gap-1.5">
           {/* Mobile toolbar */}
           <div className="md:hidden flex-shrink-0">
-            <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} compact />
+            <ToolPanel onAnonymize={handleOpenWizard} onSelectTool={handleSelectTool} onAnonymizeVideo={handleOpenVideoWizard} compact />
           </div>
           {showWizard ? (
             <div className="flex-1 min-h-0 overflow-hidden">
