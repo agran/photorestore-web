@@ -6,7 +6,7 @@
 
 - [x] Project scaffold (Vite + React + TypeScript + Tailwind)
 - [x] i18n (EN + RU)
-- [x] Dropzone with drag&drop and preview
+- [x] Dropzone with drag&drop and preview (including HEIC→JPEG auto-conversion via `heic-to` for iOS/Android uploads)
 - [x] ImageCompare before/after slider
 - [x] Tool panel UI
 - [x] History panel

@@ -6,7 +6,7 @@
 
 - [x] Каркас проекта (Vite + React + TypeScript + Tailwind)
 - [x] Локализация (EN + RU)
-- [x] Dropzone с drag&drop и предпросмотром
+- [x] Dropzone с drag&drop и предпросмотром (включая авто-конвертацию HEIC→JPEG через `heic-to` для iOS/Android)
 - [x] Слайдер сравнения ImageCompare (до/после)
 - [x] UI панели инструментов
 - [x] Панель истории

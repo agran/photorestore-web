@@ -1,13 +1,21 @@
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Upload } from 'lucide-react';
+import { Upload, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
+import { isHeicFile, heicToJpeg } from '@/lib/heic';
 
 const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32 MB
 const MAX_VIDEO_SIZE = 4 * 1024 * 1024 * 1024; // 4 GB
 const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-const ACCEPT_ATTR = [...ACCEPTED_IMAGE_TYPES, 'video/*'].join(',');
+const HEIC_MIME_TYPES = ['image/heic', 'image/heif'];
+const ACCEPT_ATTR = [
+  ...ACCEPTED_IMAGE_TYPES,
+  ...HEIC_MIME_TYPES,
+  '.heic',
+  '.heif',
+  'video/*',
+].join(',');
 
 interface DropzoneProps {
   onFile: (file: File) => void;
@@ -18,20 +26,44 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
   const { t } = useTranslation();
   const [isDragging, setIsDragging] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  const [isConverting, setIsConverting] = useState(false);
 
   const handleFile = useCallback(
-    (file: File) => {
-      const isImage = ACCEPTED_IMAGE_TYPES.includes(file.type);
+    async (input: File) => {
+      let file = input;
+      const heic = isHeicFile(file);
       const isVideo = file.type.startsWith('video/');
-      if (!isImage && !isVideo) {
-        toast({ title: t('errors.unsupportedFormat'), variant: 'destructive' });
-        return;
-      }
+
+      // Size check happens before HEIC decode so a 200 MB HEIC fails fast
+      // without spending CPU on conversion.
       const limit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
       if (file.size > limit) {
         toast({ title: t('errors.fileTooLarge'), variant: 'destructive' });
         return;
       }
+
+      if (heic) {
+        setIsConverting(true);
+        try {
+          file = await heicToJpeg(file);
+        } catch (err) {
+          setIsConverting(false);
+          toast({
+            title: t('errors.heicConversionFailed'),
+            description: err instanceof Error ? err.message : String(err),
+            variant: 'destructive',
+          });
+          return;
+        }
+        setIsConverting(false);
+      }
+
+      const isImage = ACCEPTED_IMAGE_TYPES.includes(file.type);
+      if (!isImage && !isVideo) {
+        toast({ title: t('errors.unsupportedFormat'), variant: 'destructive' });
+        return;
+      }
+
       // Preview only makes sense for images — leave the dropzone intact for videos.
       if (isImage) setPreview(URL.createObjectURL(file));
       onFile(file);
@@ -44,7 +76,7 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
+      if (file) void handleFile(file);
     },
     [handleFile]
   );
@@ -52,7 +84,7 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
   const onInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) handleFile(file);
+      if (file) void handleFile(file);
       e.target.value = '';
     },
     [handleFile]
@@ -96,6 +128,13 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
           alt={t('dropzone.previewAlt')}
           className="h-full w-full rounded-xl object-contain"
         />
+      ) : isConverting ? (
+        <div className="flex flex-col items-center gap-3 p-8 text-center">
+          <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+            <Loader2 className="h-6 w-6 text-primary animate-spin" />
+          </div>
+          <p className="text-base font-medium">{t('dropzone.convertingHeic')}</p>
+        </div>
       ) : (
         <div className="flex flex-col items-center gap-3 p-8 text-center">
           <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">

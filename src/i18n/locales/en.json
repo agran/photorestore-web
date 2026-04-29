@@ -26,7 +26,7 @@
     "heroTitle": "Restore Your Photos with AI",
     "heroSubtitle": "Upscale, denoise, and revive old photos — entirely in your browser, no data leaves your device.",
     "dropHint": "Drop an image or video here or click to select",
-    "dropHintFormats": "PNG, JPG, WEBP up to 32 MB · MP4, WebM, MOV up to 4 GB",
+    "dropHintFormats": "PNG, JPG, WEBP, HEIC up to 32 MB · MP4, WebM, MOV up to 4 GB",
     "features": {
       "upscale": "4× Super Resolution",
       "upscaleDesc": "Real-ESRGAN AI upscaling preserving fine details",
@@ -78,7 +78,8 @@
     "afterAlt": "After image"
   },
   "dropzone": {
-    "previewAlt": "Preview"
+    "previewAlt": "Preview",
+    "convertingHeic": "Converting HEIC…"
   },
   "about": {
     "title": "About PhotoRestore Web",
@@ -123,6 +124,7 @@
     "pipelineFailed": "Processing failed",
     "unsupportedFormat": "Unsupported file format",
     "fileTooLarge": "File is too large (max 32 MB)",
+    "heicConversionFailed": "Failed to convert HEIC image",
     "webgpuUnavailable": "WebGPU is not available in this browser, falling back to WASM"
   },
   "models": {
