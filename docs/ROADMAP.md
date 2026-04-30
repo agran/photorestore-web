@@ -182,6 +182,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - **Logging:** `ort.env.logLevel = 'error'` — silences per-call warnings (dynamic output shapes, op-to-EP fallbacks), logs input/output names
 - **Worker teardown:** `terminateInferenceWorker()` — recreates the worker between benchmark models to prevent WebGPU session interference
 - **Default SCRFD-10G** for anonymization (was SCRFD-500M) — higher detection recall, ceil_mode=0 WebGPU patch
+- **crossOriginIsolated detection:** `setupRuntime()` checks `self.crossOriginIsolated` — if false (GitHub Pages, no COOP/COEP), falls back to `numThreads=1`. Without this, multi-threaded WASM permanently breaks `initWasm()`.
 
 ### Milestones
 

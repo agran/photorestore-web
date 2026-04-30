@@ -181,6 +181,7 @@ MP4/WebM → mediabunny demux → VideoSampleSink (декодированные 
 - **Логирование:** `ort.env.logLevel = 'error'` — подавляет per-call warnings (динамические формы вывода, fallback опов), логируются имена входов/выходов
 - **Уничтожение воркера:** `terminateInferenceWorker()` — пересоздаёт воркер между бенчмарк-моделями, чтобы избежать интерференции WebGPU-сессий
 - **По умолчанию SCRFD-10G** для анонимизации (был SCRFD-500M) — выше полнота детекции, ceil_mode=0 патч под WebGPU
+- **Авто-детекция crossOriginIsolated:** `setupRuntime()` проверяет `self.crossOriginIsolated` — если false (GitHub Pages, нет COOP/COEP), выставляет `numThreads=1`. Без этого многопоточный WASM ломает `initWasm()` навсегда.
 
 ### Этапы
 

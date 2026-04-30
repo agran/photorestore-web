@@ -128,6 +128,21 @@ BlazeFace удалён из реестра, пайплайна детекции 
 в WebGPU и не поддерживается ORT 1.25.x (конфликт Concat в JSEP). Оставлены
 4 детектора: SCRFD-10G, SCRFD-500M, YuNet 2023, RetinaFace-MobileNet0.25.
 
+### SharedArrayBuffer / WASM-потоки на GitHub Pages
+
+GitHub Pages (и большинство статических хостингов) не выставляют заголовки
+`Cross-Origin-Opener-Policy` и `Cross-Origin-Embedder-Policy`, поэтому
+`crossOriginIsolated = false` и `SharedArrayBuffer` недоступен. Многопоточный
+WASM (`numThreads > 1`) вызывает `pthread_create failed` и ломает `initWasm()`
+навсегда — ни один бэкенд (ни WebGPU, ни WASM) не может запуститься.
+
+Решение: `setupRuntime()` в `inference.worker.ts` проверяет `self.crossOriginIsolated`
+и при отсутствии выставляет `numThreads = 1`. WebGPU при этом работает нормально,
+WASM — в однопоточном режиме (медленнее, но хотя бы работает).
+
+Локальный dev-сервер (`pnpm run dev`) задаёт COOP/COEP через `vite.config.ts` —
+там `crossOriginIsolated = true` и многопоточность доступна.
+
 ### Классы скорости (`speedClass`)
 
 Модели размечены относительной скоростью инференса по результатам
