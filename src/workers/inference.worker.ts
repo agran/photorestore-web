@@ -20,7 +20,17 @@ function serializeRun<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 function setupRuntime(numThreads: number, enableSIMD: boolean) {
-  ort.env.wasm.numThreads = numThreads;
+  // GitHub Pages (and any host that doesn't send COOP/COEP headers) lack
+  // crossOriginIsolated, so SharedArrayBuffer is unavailable. Multi-threaded
+  // WASM (numThreads > 1) would crash ORT with "pthread_create failed",
+  // permanently breaking initWasm() and preventing ALL backends from working.
+  // Detect and fall back to single-threaded.
+  if (typeof self !== 'undefined' && !self.crossOriginIsolated) {
+    console.log('[ORT] crossOriginIsolated=false, using single-threaded WASM');
+    ort.env.wasm.numThreads = 1;
+  } else {
+    ort.env.wasm.numThreads = numThreads;
+  }
   ort.env.wasm.simd = enableSIMD;
   // Silence ORT's per-call warnings — they're often harmless (dynamic
   // output shapes, op-to-EP fallbacks) but spam a stacktrace per tile.
