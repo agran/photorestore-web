@@ -22,6 +22,19 @@ import {
 
 export type VideoAnonymizeQuality = 'fast' | 'accurate';
 
+export interface TrackMeta {
+  trackId: number;
+  firstFrame: number;
+  lastFrame: number;
+  thumbnailUrl: string;
+}
+
+export interface KeyframeData {
+  frameIndex: number;
+  detections: FaceBox[];
+  poses: PoseEstimate[] | null;
+}
+
 export interface VideoAnonymizeOptions {
   effectOptions: AnonymizeEffectOptions;
   modelId: string;
@@ -37,6 +50,14 @@ export interface VideoAnonymizeOptions {
   onProgress?: (percent: number) => void;
   onEta?: (etaSec: number) => void;
   signal?: AbortSignal;
+  /** Track IDs to exclude from anonymization (skip their masks). */
+  excludeTrackIds?: Set<number>;
+  /** Callback with collected track metadata after first pass. */
+  onTrackMeta?: (tracks: TrackMeta[]) => void;
+  /** Pre-computed keyframe data from a previous pass. Skips ONNX inference for speed. */
+  storedKeyframes?: KeyframeData[];
+  /** Callback with keyframe data collected during processing, for reuse on re-process. */
+  onKeyframeData?: (keyframes: KeyframeData[]) => void;
 }
 
 function canvasFromCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
@@ -88,9 +109,11 @@ function applyEffect(
       applySolid(ctx, source, box, opts.solidColor, pad, feather, opts.maskShape, cW, cH);
       break;
     }
-    case 'emoji':
-      applyEmoji(ctx, source, box, opts.emojis?.[idx] || opts.emoji, opts.padding, 0, 'rect', cW, cH);
+    case 'emoji': {
+      const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
+      applyEmoji(ctx, source, box, opts.emojis?.[idx] || opts.emoji, pad, 0, 'rect', cW, cH);
       break;
+    }
   }
 }
 
@@ -126,7 +149,6 @@ export async function anonymizeVideo(
     const offset = lastProgress;
     const fallbackOpts = {
       ...options,
-      progressOffset: offset,
       onProgress: (p: number) => {
         const adjusted = offset + Math.round(p * (99 - offset) / 99);
         monotonicProgress(adjusted);
@@ -140,7 +162,7 @@ async function anonymizeVideoV2(
   file: File,
   options: VideoAnonymizeOptions,
 ): Promise<Blob> {
-  const { effectOptions, modelId, quality = 'fast', videoDuration: optDuration, bodyTracking = false, onProgress, onEta, signal } = options;
+  const { effectOptions, modelId, quality = 'fast', videoDuration: optDuration, bodyTracking = false, onProgress, onEta, signal, excludeTrackIds, onTrackMeta, storedKeyframes, onKeyframeData } = options;
   const resolvedOpts = resolveEffectOptions(effectOptions);
   const useScaleInvariant = true;
 
@@ -177,11 +199,16 @@ async function anonymizeVideoV2(
   const outputCodec = configSupported ? 'avc1.420028' : 'vp09.00.10.08';
   const outputCodecType = configSupported ? 'avc' as const : 'vp9' as const;
 
-  const encodedChunks: Array<{ chunk: EncodedVideoChunk; meta?: EncodedVideoChunkMetadata }> = [];
+  const encodedChunks: EncodedVideoChunk[] = [];
+  let encoderMeta: EncodedVideoChunkMetadata | undefined;
+  let isFirstVideoPacket = true;
   let encoderError: unknown = null;
 
   const encoder = new VideoEncoder({
-    output: (chunk, meta) => { encodedChunks.push({ chunk, meta }); },
+    output: (chunk, meta) => {
+      if (!encoderMeta && meta) encoderMeta = meta;
+      encodedChunks.push(chunk);
+    },
     error: (err) => { console.error('VideoEncoder error:', err); encoderError = err; },
   });
   encoder.configure(configSupported ? h264Config : {
@@ -210,6 +237,26 @@ async function anonymizeVideoV2(
 
   await output.start();
 
+  async function drainEncodedChunks() {
+    while (encodedChunks.length > 0) {
+      if (signal?.aborted) break;
+      const chunk = encodedChunks.shift()!;
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      const pkt = new EncodedPacket(
+        data,
+        chunk.type === 'key' ? 'key' : 'delta',
+        chunk.timestamp / 1_000_000,
+        (chunk.duration ?? 33_333) / 1_000_000,
+      );
+      const meta = isFirstVideoPacket
+        ? (encoderMeta ?? { decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH } })
+        : undefined;
+      await videoSource.add(pkt, meta);
+      isFirstVideoPacket = false;
+    }
+  }
+
   // 4. Stream video frames
   const videoSink = new VideoSampleSink(videoTrack);
   // When body tracking is enabled, keep tracks alive much longer so the
@@ -223,6 +270,16 @@ async function anonymizeVideoV2(
   let detectionIntervalAdaptive = quality === 'accurate' ? 1 : 30;
   const minInterval = quality === 'accurate' ? 1 : 5;
   const maxInterval = quality === 'accurate' ? 1 : 60;
+
+  // Track metadata collection for mask review after first pass.
+  const trackMetaMap = new Map<number, { firstFrame: number; lastFrame: number; thumbnailUrl: string }>();
+  const excludedSet = excludeTrackIds ?? new Set<number>();
+
+  // Pre-computed keyframes from a previous pass — skip ONNX inference on replay.
+  const keyframeLookup = storedKeyframes
+    ? new Map(storedKeyframes.map((k) => [k.frameIndex, k]))
+    : undefined;
+  const keyframeDataList: KeyframeData[] = [];
 
   const sampleIterator = videoSink.samples();
   let sampleResult = await sampleIterator.next();
@@ -288,16 +345,40 @@ async function anonymizeVideoV2(
       let trackedFaces: TrackedFace[] = [];
 
       if (frameIndex >= nextDetectionFrame) {
-        const detectCanvas = document.createElement('canvas');
-        detectCanvas.width = cW;
-        detectCanvas.height = cH;
-        sample.draw(detectCanvas.getContext('2d')!, 0, 0, cW, cH);
-
         const runPose = bodyTracking && frameIndex >= nextPoseFrame;
-        const [detections, posesResult] = await Promise.all([
-          detectFaces(detectCanvas, { modelId }),
-          runPose ? estimatePoses(detectCanvas).catch(() => null) : Promise.resolve(null),
-        ]);
+
+        let detections: FaceBox[];
+        let posesResult: PoseEstimate[] | null;
+
+        // Replay stored keyframe data from a previous pass to skip expensive
+        // ONNX inference when re-processing with modified exclusion masks.
+        const stored = keyframeLookup?.get(frameIndex);
+        let detectCanvas: HTMLCanvasElement | undefined;
+        if (stored) {
+          detections = stored.detections.map((d) => ({ ...d }));
+          posesResult = stored.poses;
+        } else {
+          detectCanvas = document.createElement('canvas');
+          detectCanvas.width = cW;
+          detectCanvas.height = cH;
+          sample.draw(detectCanvas.getContext('2d')!, 0, 0, cW, cH);
+
+          const [dets, poses] = await Promise.all([
+            detectFaces(detectCanvas, { modelId }),
+            runPose ? estimatePoses(detectCanvas).catch(() => null) : Promise.resolve(null),
+          ]);
+          detections = dets;
+          posesResult = poses;
+
+          // Collect keyframe data for reuse on subsequent re-processing passes.
+          if (onKeyframeData) {
+            keyframeDataList.push({
+              frameIndex,
+              detections: detections.map((d) => ({ ...d })),
+              poses: runPose ? posesResult : null,
+            });
+          }
+        }
 
         // Inject pose-only synthetic detections so partial/edge faces (where
         // the face detector misses but the pose detector still sees the body)
@@ -327,6 +408,32 @@ async function anonymizeVideoV2(
         // Always call update() — even on empty detections, so framesSinceUpdate
         // increments and the body-tracking override can take over.
         trackedFaces = tracker.update(detections, 0.5, cW, cH);
+
+        // Collect track metadata for mask review
+        if (onTrackMeta) {
+          for (const tf of trackedFaces) {
+            const existing = trackMetaMap.get(tf.trackId);
+            if (existing) {
+              existing.lastFrame = frameIndex;
+            } else {
+              // Capture face thumbnail from detection canvas
+              const pad = 20;
+              const tx = Math.max(0, Math.round(tf.x) - pad);
+              const ty = Math.max(0, Math.round(tf.y) - pad);
+              const tw = Math.min(Math.round(tf.width) + pad * 2, cW - tx);
+              const th = Math.min(Math.round(tf.height) + pad * 2, cH - ty);
+              const thumbCanvas = document.createElement('canvas');
+              thumbCanvas.width = tw;
+              thumbCanvas.height = th;
+              if (detectCanvas) thumbCanvas.getContext('2d')!.drawImage(detectCanvas, tx, ty, tw, th, 0, 0, tw, th);
+              trackMetaMap.set(tf.trackId, {
+                firstFrame: frameIndex,
+                lastFrame: frameIndex,
+                thumbnailUrl: thumbCanvas.toDataURL('image/jpeg', 0.7),
+              });
+            }
+          }
+        }
 
         if (runPose) {
           cachedPoses = posesResult;
@@ -360,6 +467,9 @@ async function anonymizeVideoV2(
         for (let i = 0; i < trackedFaces.length; i++) {
           const tf = trackedFaces[i];
           aliveTrackIds.add(tf.trackId);
+
+          // Skip tracks excluded by user during mask review
+          if (excludedSet.has(tf.trackId)) continue;
 
           // Suppress the mask for tracks that look like phantoms: face has
           // been unmatched for several frames AND no body pose backs them up.
@@ -443,6 +553,10 @@ async function anonymizeVideoV2(
       if (encoderError) { console.error('VideoEncoder failed'); throw new Error('VideoEncoder error'); }
 
       frameIndex++;
+      // Periodically drain encoded chunks to avoid OOM on long videos
+      if (frameIndex % 300 === 0 && encodedChunks.length > 0) {
+        await drainEncodedChunks();
+      }
       const progress = videoDuration > 0
         ? 5 + Math.round((sample.timestamp / videoDuration) * 90)
         : 5 + Math.min(90, Math.round(frameIndex / (frameIndex + 30) * 90));
@@ -452,7 +566,7 @@ async function anonymizeVideoV2(
         const elapsed = (performance.now() - startTime) / 1000;
         const timeProgress = videoDuration > 0 ? sample.timestamp / videoDuration : frameIndex / (frameIndex + 30);
         const rate = timeProgress / elapsed;
-        const remainingTotal = videoDuration > 0 ? 1 - timeProgress : 1 - timeProgress;
+        const remainingTotal = 1 - timeProgress;
         onEta(Math.max(0, Math.round(remainingTotal / (rate || 0.001))));
       }
     } finally {
@@ -462,77 +576,84 @@ async function anonymizeVideoV2(
   }
 
   // 5. Flush encoder and add to output
-  try { await encoder.flush(); } catch { /* ignore */ }
-  encoder.close();
-  onProgress?.(96);
+  let buffer: ArrayBuffer | null = null;
 
-  // Use encoder output metadata for the first packet (includes AVCDecoderConfigurationRecord)
-  const encoderMeta = encodedChunks[0]?.meta;
-  const videoMeta = encoderMeta ?? { decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH } };
+  try {
+    try { await encoder.flush(); } catch { /* ignore */ }
+    encoder.close();
+    onProgress?.(96);
 
-  let isFirstVideoPacket = true;
-  for (const { chunk } of encodedChunks) {
-    if (signal?.aborted) break;
-    const data = new Uint8Array(chunk.byteLength);
-    chunk.copyTo(data);
-    const pkt = new EncodedPacket(
-      data,
-      chunk.type === 'key' ? 'key' : 'delta',
-      chunk.timestamp / 1_000_000,           // μs → seconds
-      (chunk.duration ?? 33_333) / 1_000_000, // μs → seconds
-    );
-    await videoSource.add(pkt, isFirstVideoPacket ? videoMeta : undefined);
-    isFirstVideoPacket = false;
-  }
-  videoSource.close();
-  onProgress?.(97);
+    // Drain remaining chunks after flush
+    await drainEncodedChunks();
+    videoSource.close();
+    onProgress?.(97);
 
-  // 6. Audio passthrough — wrapped in try/catch so audio errors degrade
-  // gracefully (MP4 without audio) instead of triggering the WebM fallback.
-  if (audioSource) {
-    let audioClosed = false;
-    try {
-      const decoderConfig = await audioTrack!.getDecoderConfig();
-      if (!decoderConfig) {
-        console.warn('[anonymizeVideo] No audio decoder config available, skipping audio');
-        audioSource.close();
-        audioClosed = true;
-      } else {
-        const audioMetadata: EncodedAudioChunkMetadata = { decoderConfig };
-        const audioSink = new EncodedPacketSink(audioTrack!);
-        let isFirstPacket = true;
-        let skippedPreRoll = 0;
-        for await (const packet of audioSink.packets()) {
-          if (signal?.aborted) break;
-          // AAC and similar codecs emit "priming" packets with negative
-          // timestamps that the player should discard. The MP4 muxer
-          // rejects them outright — drop them here.
-          if (packet.timestamp < 0) {
-            skippedPreRoll++;
-            continue;
+    // 6. Audio passthrough — wrapped in try/catch so audio errors degrade
+    // gracefully (MP4 without audio) instead of triggering the WebM fallback.
+    if (audioSource) {
+      let audioClosed = false;
+      try {
+        const decoderConfig = await audioTrack!.getDecoderConfig();
+        if (!decoderConfig) {
+          console.warn('[anonymizeVideo] No audio decoder config available, skipping audio');
+          audioSource.close();
+          audioClosed = true;
+        } else {
+          const audioMetadata: EncodedAudioChunkMetadata = { decoderConfig };
+          const audioSink = new EncodedPacketSink(audioTrack!);
+          let isFirstPacket = true;
+          let skippedPreRoll = 0;
+          for await (const packet of audioSink.packets()) {
+            if (signal?.aborted) break;
+            // AAC and similar codecs emit "priming" packets with negative
+            // timestamps that the player should discard. The MP4 muxer
+            // rejects them outright — drop them here.
+            if (packet.timestamp < 0) {
+              skippedPreRoll++;
+              continue;
+            }
+            await audioSource.add(packet, isFirstPacket ? audioMetadata : undefined);
+            isFirstPacket = false;
           }
-          await audioSource.add(packet, isFirstPacket ? audioMetadata : undefined);
-          isFirstPacket = false;
+          if (skippedPreRoll > 0) {
+            console.log(`[anonymizeVideo] Skipped ${skippedPreRoll} audio pre-roll packet(s)`);
+          }
+          audioSource.close();
+          audioClosed = true;
         }
-        if (skippedPreRoll > 0) {
-          console.log(`[anonymizeVideo] Skipped ${skippedPreRoll} audio pre-roll packet(s)`);
+      } catch (audioErr) {
+        console.warn('[anonymizeVideo] Audio passthrough failed, output will have no audio:', audioErr);
+        if (!audioClosed) {
+          try { audioSource.close(); } catch { /* idempotent close */ }
         }
-        audioSource.close();
-        audioClosed = true;
-      }
-    } catch (audioErr) {
-      console.warn('[anonymizeVideo] Audio passthrough failed, output will have no audio:', audioErr);
-      if (!audioClosed) {
-        try { audioSource.close(); } catch { /* idempotent close */ }
       }
     }
+
+    onProgress?.(98);
+    await output.finalize();
+    onProgress?.(99);
+
+    buffer = output.target.buffer;
+
+    if (onKeyframeData && keyframeDataList.length > 0) {
+      onKeyframeData(keyframeDataList);
+    }
+
+    if (onTrackMeta) {
+      const metas: TrackMeta[] = [];
+      for (const [trackId, meta] of trackMetaMap) {
+        metas.push({ trackId, ...meta });
+      }
+      metas.sort((a, b) => a.firstFrame - b.firstFrame);
+      onTrackMeta(metas);
+    }
+  } finally {
+    // Ensure resources are released even if the pipeline fails mid-processing
+    try { encoder.close(); } catch { /* already closed */ }
+    try { videoSource.close(); } catch { /* already closed */ }
+    try { audioSource?.close(); } catch { /* already closed */ }
   }
 
-  onProgress?.(98);
-  await output.finalize();
-  onProgress?.(99);
-
-  const buffer = output.target.buffer;
   if (!buffer) throw new Error('No output buffer');
   return new Blob([buffer], { type: 'video/mp4' });
 }
@@ -554,7 +675,10 @@ async function anonymizeVideoFallback(
 
   await new Promise<void>((resolve, reject) => {
     video.onloadedmetadata = () => resolve();
-    video.onerror = () => reject(new Error('Failed to load video'));
+    video.onerror = () => {
+      URL.revokeObjectURL(video.src);
+      reject(new Error('Failed to load video'));
+    };
   });
 
   const fps = optFps ?? 30;
@@ -653,7 +777,8 @@ async function anonymizeVideoFallback(
     return canvas;
   }
 
-  for (let f = 0; f < totalFrames; f++) {
+  try {
+    for (let f = 0; f < totalFrames; f++) {
     let trackedFaces: TrackedFace[] = [];
     if (f >= nextDetectionFrame) {
       await seekToFrame(video, f);
@@ -707,9 +832,9 @@ async function anonymizeVideoFallback(
       nextDetectionFrame = f + dInterval;
     } else {
       trackedFaces = tracker.predict(cW, cH);
+      await seekToFrame(video, f);
     }
 
-    await seekToFrame(video, f);
     encodeCtx.drawImage(video, 0, 0, cW, cH);
 
     if (trackedFaces.length > 0) {
@@ -782,8 +907,10 @@ async function anonymizeVideoFallback(
   }
 
   onProgress?.(99);
-  recorder.stop();
-  URL.revokeObjectURL(video.src);
-  video.remove();
   return outputBlobPromise;
+  } finally {
+    try { recorder.stop(); } catch { /* already stopped */ }
+    URL.revokeObjectURL(video.src);
+    video.remove();
+  }
 }

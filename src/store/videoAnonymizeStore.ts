@@ -1,7 +1,8 @@
 import type { AnonymizeEffect, MaskShape } from '@/ml/utils/anonymizeEffects';
+import type { TrackMeta, KeyframeData } from '@/ml/pipelines/anonymizeVideo';
 import { create } from 'zustand';
 
-export type VideoAnonymizeStep = 'idle' | 'loaded' | 'processing' | 'done';
+export type VideoAnonymizeStep = 'idle' | 'loaded' | 'processing' | 'review' | 'done';
 export type VideoAnonymizeQuality = 'fast' | 'accurate';
 
 interface VideoAnonymizeState {
@@ -31,6 +32,9 @@ interface VideoAnonymizeState {
   outputBlob: Blob | null;
   outputUrl: string | null;
   outputExt: string;
+  trackMetas: TrackMeta[];
+  excludedTrackIds: Set<number>;
+  keyframeData: KeyframeData[] | null;
 
   setFile: (file: File, info: { duration: number; fps: number; width: number; height: number; frameCount: number }) => void;
   /** Load a video file, read its metadata, and transition to step='loaded'. */
@@ -56,6 +60,14 @@ interface VideoAnonymizeState {
   editAgain: () => void;
   /** Return to step='done' to view the already-processed result. */
   showResult: () => void;
+  /** Enter mask review step after first processing pass. */
+  enterReview: (trackMetas: TrackMeta[]) => void;
+  /** Store keyframe data from first pass for reuse on re-process. */
+  setKeyframeData: (data: KeyframeData[]) => void;
+  /** Toggle exclusion of a specific track. */
+  toggleTrackExclusion: (trackId: number) => void;
+  /** Return to step='loaded' with excluded tracks configured, ready to re-process. */
+  reProcessWithExclusions: () => void;
   reset: () => void;
 }
 
@@ -86,6 +98,9 @@ const initialState = {
   outputBlob: null as Blob | null,
   outputUrl: null as string | null,
   outputExt: 'mp4',
+  trackMetas: [] as TrackMeta[],
+  excludedTrackIds: new Set<number>(),
+  keyframeData: null as KeyframeData[] | null,
 };
 
 export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => ({
@@ -97,7 +112,8 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
     if (prev.outputUrl) URL.revokeObjectURL(prev.outputUrl);
     set({
       step: 'loaded', file, videoUrl: URL.createObjectURL(file), ...info,
-      outputBlob: null, outputUrl: null, progress: 0, aborted: false,
+      outputBlob: null, outputUrl: null, progress: 0, aborted: false, startTime: 0,
+      trackMetas: [], excludedTrackIds: new Set<number>(), keyframeData: null,
     });
   },
 
@@ -128,6 +144,10 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
         outputUrl: null,
         progress: 0,
         aborted: false,
+        startTime: 0,
+        trackMetas: [],
+        excludedTrackIds: new Set<number>(),
+        keyframeData: null,
       });
       vid.remove();
       resolve();
@@ -160,13 +180,32 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
     set({ step: 'done', progress: 100, outputBlob, outputUrl, outputExt });
   },
 
-  editAgain: () => set({ step: 'loaded', progress: 0, aborted: false }),
+  editAgain: () => set({ step: 'loaded', progress: 0, aborted: false, trackMetas: [], excludedTrackIds: new Set<number>(), keyframeData: null }),
 
   showResult: () => set({ step: 'done', progress: 100 }),
 
+  enterReview: (trackMetas) => {
+    set({ step: 'review', trackMetas, excludedTrackIds: new Set<number>() });
+  },
+
+  setKeyframeData: (keyframeData) => set({ keyframeData }),
+
+  toggleTrackExclusion: (trackId) => {
+    const { excludedTrackIds } = get();
+    const next = new Set(excludedTrackIds);
+    if (next.has(trackId)) {
+      next.delete(trackId);
+    } else {
+      next.add(trackId);
+    }
+    set({ excludedTrackIds: next });
+  },
+
+  reProcessWithExclusions: () => set({ step: 'loaded', progress: 0, aborted: false }),
+
   reset: () => {
     const s = get();
-    if (s.videoUrl && !s.outputUrl) URL.revokeObjectURL(s.videoUrl);
+    if (s.videoUrl) URL.revokeObjectURL(s.videoUrl);
     if (s.outputUrl) URL.revokeObjectURL(s.outputUrl);
     set(initialState);
   },

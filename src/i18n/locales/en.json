@@ -178,6 +178,12 @@
     "openAnotherPhoto": "Open another photo",
     "openAnotherVideo": "Open another video",
     "editAgain": "Back to settings",
-    "backToResult": "Back to result"
+    "backToResult": "Back to result",
+    "reviewMasks": "Review Masks",
+    "reviewMasksHint": "Uncheck masks you want to remove, then click Apply to re-process",
+    "masksFound": "Masks found: {{count}}",
+    "removeMask": "Remove mask",
+    "keepMask": "Keep mask",
+    "applyExcluding": "Apply without selected masks"
   }
 }

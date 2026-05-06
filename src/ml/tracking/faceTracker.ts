@@ -190,14 +190,39 @@ export class FaceTracker {
       const rescueTracks = unmatchedTrackIndices.map((t) => updated[t]);
       const rescueDets = unmatchedHighDetIndices.map((d) => highDets[d]);
       const adaptiveMaxs = unmatchedTrackIndices.map(
-        (t) => 1.1 + Math.min(1.0, (this.lostCounts[t] || 0) * 0.06),
+        (t) => {
+          const lost = this.lostCounts[t] || 0;
+          // Recently-matched tracks get a wide search radius to handle
+          // sudden video cuts where a face teleports. Decays to 1.1 after
+          // ~6 lost frames so false re-associations are avoided.
+          return Math.max(1.1, 6.0 - lost * 0.8);
+        },
       );
       const stage15 = matchByCost(rescueTracks, rescueDets, adaptiveMaxs);
 
       for (const { trackIdx: localIdx, detIdx: localDetIdx } of stage15.matched) {
         const globalT = unmatchedTrackIndices[localIdx];
         const globalD = unmatchedHighDetIndices[localDetIdx];
-        updated[globalT] = kalmanUpdate(updated[globalT], highDets[globalD]);
+        const d = highDets[globalD];
+
+        // Snap position instantly on large jumps (cost > Stage 1 threshold).
+        // Without this, kalmanUpdate would creep the mask toward the new
+        // position over many frames, leaving the face exposed after a cut.
+        const trackBox: FaceBox = { x: updated[globalT].x, y: updated[globalT].y, width: updated[globalT].w, height: updated[globalT].h, confidence: 0 };
+        if (matchingCost(trackBox, d) > this.costHigh) {
+          const oldTrack = updated[globalT];
+          updated[globalT] = {
+            x: d.x, y: d.y, w: d.width, h: d.height,
+            dx: oldTrack.dx, dy: oldTrack.dy, dw: oldTrack.dw, dh: oldTrack.dh,
+            p: 0.05,
+            ax: d.x, ay: d.y, aw: d.width, ah: d.height,
+            dt: 0,
+          };
+          this.smoothBoxes[globalT] = { x: d.x, y: d.y, w: d.width, h: d.height };
+        } else {
+          updated[globalT] = kalmanUpdate(updated[globalT], d);
+        }
+
         matchedSet.add(globalT);
         this.lostCounts[globalT] = 0;
         usedHighDets.add(localDetIdx);
@@ -237,7 +262,10 @@ export class FaceTracker {
         if ((this.lostCounts[i] || 0) > 5) continue; // only recently lost
         const trackBox: FaceBox = { x: updated[i].x, y: updated[i].y, width: updated[i].w, height: updated[i].h, confidence: 0 };
         const cost = matchingCost(trackBox, d);
-        if (cost < 2.5 && cost < bestReuseCost) {
+        // Recently-lost tracks get a wider re-association radius to handle
+        // video cuts where a face teleports to a far-away position.
+        const maxReuseCost = 3.0 + Math.max(0, 5 - (this.lostCounts[i] || 0)) * 0.5;
+        if (cost < maxReuseCost && cost < bestReuseCost) {
           bestReuseCost = cost;
           reusedId = i;
         }

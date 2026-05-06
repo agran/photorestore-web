@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Download, X, Settings2, Square, FilePlus2, Pencil } from 'lucide-react';
+import { Play, Download, X, Settings2, Square, FilePlus2, Pencil, Eye, EyeOff } from 'lucide-react';
 import { Button } from './ui/button';
 import { useVideoAnonymizeStore, type VideoAnonymizeQuality } from '@/store/videoAnonymizeStore';
 import { getModelsByPipeline, formatModelSize, modelRuntimeLabel } from '@/ml/modelRegistry';
-import { anonymizeVideo } from '@/ml/pipelines/anonymizeVideo';
+import { anonymizeVideo, type TrackMeta, type KeyframeData } from '@/ml/pipelines/anonymizeVideo';
 import { downloadUrl } from '@/lib/download';
 import { toast } from '@/hooks/useToast';
 import type { AnonymizeEffect } from '@/ml/utils/anonymizeEffects';
@@ -27,6 +27,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     effect, blurRadius, pixelateSize, solidColor,
     modelId, padding, feather, maskShape, progress,
     outputUrl, emojiInput, emojiRandom, quality, bodyTracking, outputExt,
+    trackMetas, excludedTrackIds,
   } = store;
 
   const [isProcessing, setIsProcessing] = useState(false);
@@ -72,6 +73,9 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     abortRef.current = controller;
 
     try {
+      const capturedTrackMetas: TrackMeta[] = [];
+      const capturedKeyframeData: KeyframeData[] = [];
+      const isReProcess = store.excludedTrackIds.size > 0;
       const blob = await anonymizeVideo(file, {
         modelId,
         quality,
@@ -85,11 +89,25 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
         onProgress: (p) => store.setProgress(p),
         onEta: (s) => setEta(s),
         signal: controller.signal,
+        excludeTrackIds: isReProcess ? store.excludedTrackIds : undefined,
+        storedKeyframes: isReProcess ? (store.keyframeData ?? undefined) : undefined,
+        onKeyframeData: isReProcess ? undefined : (kf) => { capturedKeyframeData.push(...kf); },
+        onTrackMeta: (metas) => {
+          capturedTrackMetas.push(...metas);
+        },
       });
       if (controller.signal.aborted) return;
       const url = URL.createObjectURL(blob);
       const ext = blob.type === 'video/mp4' ? 'mp4' : blob.type === 'video/webm' ? 'webm' : 'mp4';
-      store.setOutput(blob, url, ext);
+
+      // First pass (no exclusions): store keyframe data and enter review step if tracks were found
+      if (!isReProcess && capturedTrackMetas.length > 0) {
+        store.setOutput(blob, url, ext);
+        store.setKeyframeData(capturedKeyframeData);
+        store.enterReview(capturedTrackMetas);
+      } else {
+        store.setOutput(blob, url, ext);
+      }
     } catch (err) {
       if (controller.signal.aborted) return;
       toast({
@@ -110,9 +128,18 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
     store.setStep('loaded');
   }, [store]);
 
+  const handleApplyExcluding = useCallback(() => {
+    store.reProcessWithExclusions();
+    // Trigger re-processing in the loaded step automatically
+    setTimeout(() => { void handleProcess(); }, 0);
+  }, [store, handleProcess]);
+
   const handleDownload = useCallback(() => {
-    if (outputUrl) downloadUrl(outputUrl, `anonymized.${outputExt}`);
-  }, [outputUrl, outputExt]);
+    if (outputUrl) {
+      const baseName = (store.file?.name ?? 'video').replace(/\.[^.]+$/, '');
+      downloadUrl(outputUrl, `${baseName}_anonymized.${outputExt}`);
+    }
+  }, [outputUrl, outputExt, store.file]);
 
   return (
     <div className="flex h-full flex-col rounded-lg border bg-card text-card-foreground shadow-sm overflow-hidden">
@@ -152,7 +179,7 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
       <div className="flex flex-1 flex-col gap-1.5 overflow-hidden p-2 min-h-0">
         {/* Video preview — output only on 'done', otherwise the source video */}
         <div className="relative flex-1 min-h-0 overflow-hidden rounded-lg bg-muted">
-          {step === 'done' && outputUrl ? (
+          {(step === 'done' || step === 'review') && outputUrl ? (
             <video src={outputUrl} controls className="absolute inset-0 w-full h-full object-contain" />
           ) : videoUrl ? (
             <video src={videoUrl} controls className="absolute inset-0 w-full h-full object-contain" />
@@ -303,6 +330,67 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
             <Button className="w-full gap-2 h-9 text-sm" onClick={() => void handleProcess()} disabled={isProcessing}>
               <Play className="h-4 w-4" />{t('common.process')}
             </Button>
+          </div>
+        )}
+
+        {/* Review step: show track thumbnails, toggle exclusions */}
+        {step === 'review' && (
+          <div className="flex-shrink-0 space-y-2">
+            <p className="text-xs text-muted-foreground">
+              {t('anonymize.reviewMasksHint')} · {t('anonymize.masksFound', { count: trackMetas.length })}
+            </p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-40 overflow-y-auto">
+              {trackMetas.map((meta) => {
+                const excluded = excludedTrackIds.has(meta.trackId);
+                return (
+                  <button
+                    key={meta.trackId}
+                    type="button"
+                    onClick={() => store.toggleTrackExclusion(meta.trackId)}
+                    className={`relative group rounded-md border-2 overflow-hidden transition-all ${
+                      excluded ? 'border-destructive opacity-40' : 'border-primary'
+                    }`}
+                    title={excluded ? t('anonymize.removeMask') : t('anonymize.keepMask')}
+                  >
+                    <img
+                      src={meta.thumbnailUrl}
+                      alt={`${t('anonymize.title')} #${meta.trackId}`}
+                      className="w-full aspect-square object-cover"
+                    />
+                    <div className={`absolute inset-0 flex items-center justify-center transition-opacity ${
+                      excluded ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                    }`}>
+                      {excluded ? (
+                        <EyeOff className="h-5 w-5 text-destructive-foreground drop-shadow" />
+                      ) : (
+                        <Eye className="h-5 w-5 text-primary-foreground drop-shadow" />
+                      )}
+                    </div>
+                    <span className="absolute bottom-0.5 right-1 text-[10px] font-mono text-white drop-shadow">
+                      #{meta.trackId}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                className="flex-1 gap-2 h-9 text-sm"
+                onClick={() => {
+                  store.setStep('done');
+                }}
+              >
+                <Download className="h-4 w-4" />{t('common.download')}
+              </Button>
+              <Button
+                className="flex-1 gap-2 h-9 text-sm"
+                onClick={handleApplyExcluding}
+                disabled={isProcessing}
+              >
+                <Play className="h-4 w-4" />{t('anonymize.applyExcluding')}
+              </Button>
+            </div>
           </div>
         )}
 
