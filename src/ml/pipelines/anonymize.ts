@@ -2,6 +2,7 @@ import * as Comlink from 'comlink';
 import { getModel } from '@/ml/modelRegistry';
 import { loadModel, isModelCached } from '@/ml/modelLoader';
 import { getInferenceWorker } from '@/ml/inferenceClient';
+import { planTiles, extractTile } from '@/ml/utils/tiling';
 import {
   prepareScrfdInput,
   prepareRawInput,
@@ -72,41 +73,10 @@ function fitCanvasLetterbox(
   return { canvas: c, scale, offsetX, offsetY };
 }
 
-interface TileBox {
-  tileX: number;
-  tileY: number;
-  tileW: number;
-  tileH: number;
-  canvas: HTMLCanvasElement;
-}
-
-function splitDetectionTiles(
-  source: HTMLCanvasElement,
-  tileW: number,
-  tileH: number,
-  overlap: number
-): TileBox[] {
-  const { width, height } = source;
-  const strideW = tileW - overlap;
-  const strideH = tileH - overlap;
-  const tiles: TileBox[] = [];
-
-  for (let y = 0; y < height; y += strideH) {
-    for (let x = 0; x < width; x += strideW) {
-      const tw = Math.min(tileW, width - x);
-      const th = Math.min(tileH, height - y);
-
-      const tc = document.createElement('canvas');
-      tc.width = tw;
-      tc.height = th;
-      const ctx = tc.getContext('2d')!;
-      ctx.drawImage(source, x, y, tw, th, 0, 0, tw, th);
-
-      tiles.push({ tileX: x, tileY: y, tileW: tw, tileH: th, canvas: tc });
-    }
-  }
-  return tiles;
-}
+// Detection tiles are uniformly model-input-sized (e.g. 640×640 for SCRFD).
+// We use the shared planTiles helper, but face-detection tiles are square and
+// don't share scale/merge concerns with upscale, so we wrap planTiles to keep
+// the call sites readable.
 
 function prepareTensorData(
   canvas: HTMLCanvasElement,
@@ -219,17 +189,26 @@ export async function detectFaces(
     console.log(`[Anonymize] Global pass: ${globalFaces.length} face(s) detected`);
   }
 
-  const tiles = splitDetectionTiles(canvas, inputW, inputH, 64);
+  // Plan coordinates only — extract each tile lazily so we don't hold N
+  // canvases simultaneously. Detection tiles are square, scale=1 (no
+  // upscaling), 64 px overlap so faces split across a tile boundary still
+  // appear whole in at least one neighbor.
+  const tileCoords = planTiles(canvas.width, canvas.height, {
+    tileSize: inputW,
+    overlap: 64,
+    scale: 1,
+  });
 
-  for (let i = 0; i < tiles.length; i++) {
-    const tile = tiles[i];
-    const padded = padCanvas(tile.canvas, inputW, inputH);
+  for (let i = 0; i < tileCoords.length; i++) {
+    const coord = tileCoords[i];
+    const tileCanvas = extractTile(canvas, coord);
+    const padded = padCanvas(tileCanvas, inputW, inputH);
     const tensorData = prepareTensorData(padded, modelId, inputW, inputH);
 
     const outputRecord = await api.runMulti(
       Comlink.transfer(tensorData, [tensorData.buffer]),
       [1, 3, inputH, inputW],
-      model.url
+      model.url,
     );
 
     const outputNames = Object.keys(outputRecord);
@@ -240,7 +219,7 @@ export async function detectFaces(
 
     // Debug: log output dims and sample values
     if (i === 0) {
-      console.group(`[Anonymize] Model: ${model.name}, Tile 0 (${tile.tileW}×${tile.tileH})`);
+      console.group(`[Anonymize] Model: ${model.name}, Tile 0 (${coord.srcW}×${coord.srcH})`);
       for (const [name, { data, dims }] of Object.entries(outputRecord)) {
         const samples = Array.from(data.slice(0, Math.min(8, data.length)));
         console.log(`  ${name} [${dims.join(',')}] samples:`, samples.map((v) => v.toFixed(4)));
@@ -250,12 +229,12 @@ export async function detectFaces(
 
     const tileFaces = parseDetections(
       modelId, outputs, outputNames,
-      inputW, inputH, inputW, inputH, threshold
+      inputW, inputH, inputW, inputH, threshold,
     );
 
     // Filter detections outside tile content area and clamp
-    const maxTileX = tile.tileW - 1;
-    const maxTileY = tile.tileH - 1;
+    const maxTileX = coord.srcW - 1;
+    const maxTileY = coord.srcH - 1;
 
     for (const f of tileFaces) {
       const fx = Math.max(0, f.x);
@@ -266,15 +245,15 @@ export async function detectFaces(
       if (fw < 8 || fh < 8) continue;
 
       allFaces.push({
-        x: fx + tile.tileX,
-        y: fy + tile.tileY,
+        x: fx + coord.srcX,
+        y: fy + coord.srcY,
         width: fw,
         height: fh,
         confidence: f.confidence,
       });
     }
 
-    onProgress?.(25 + Math.round((i + 1) / tiles.length * 60));
+    onProgress?.(25 + Math.round(((i + 1) / tileCoords.length) * 60));
   }
 
   if (allFaces.length === 0) return [];

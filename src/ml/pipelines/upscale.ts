@@ -2,7 +2,7 @@ import * as Comlink from 'comlink';
 import { getModel } from '@/ml/modelRegistry';
 import { loadModel, isModelCached } from '@/ml/modelLoader';
 import { getInferenceWorker, terminateInferenceWorker } from '@/ml/inferenceClient';
-import { splitTiles, mergeTiles, type TileOptions, type ProcessedTile } from '@/ml/utils/tiling';
+import { planTiles, extractTile, TileMerger, type TileOptions } from '@/ml/utils/tiling';
 import { canvasToNCHW, nchwToCanvas } from '@/ml/utils/tensor';
 
 export interface UpscaleOptions {
@@ -101,29 +101,32 @@ export async function upscale(
     };
   }
 
-  // Tiling: split source into overlapping tiles, pad each to model input, infer, crop, merge
+  // Streaming tiling: plan coordinates, then for each tile extract→infer→
+  // blend→drop. Peak memory is one tile's I/O canvases plus the merger's
+  // accumulators — not N tiles' worth of output canvases.
   const tilingOpts: TileOptions = { tileSize: modelW, overlap: tileOverlap, scale };
-  const tiles = splitTiles(canvas, tilingOpts);
+  const coords = planTiles(width, height, tilingOpts);
   options.onProgress?.(30);
 
-  const processedTiles: ProcessedTile[] = [];
-  for (let i = 0; i < tiles.length; i++) {
-    const tile = tiles[i];
-    const padded = padCanvas(tile.canvas, modelW, modelH);
+  const merger = new TileMerger(tilingOpts, width, height);
+  for (let i = 0; i < coords.length; i++) {
+    const coord = coords[i];
+    const tileCanvas = extractTile(canvas, coord);
+    const padded = padCanvas(tileCanvas, modelW, modelH);
     const tensor = canvasToNCHW(padded);
     const outputTensor = await api.run(
       Comlink.transfer(tensor, [tensor.buffer]),
       [1, 3, modelH, modelW],
-      model.url
+      model.url,
     );
     const fullOutput = nchwToCanvas(outputTensor, modelW * scale, modelH * scale);
-    const outputCanvas = cropCanvas(fullOutput, tile.srcW * scale, tile.srcH * scale);
-
-    processedTiles.push({ ...tile, outputCanvas });
-    options.onProgress?.(30 + Math.round((i + 1) / tiles.length * 65));
+    const outputCanvas = cropCanvas(fullOutput, coord.srcW * scale, coord.srcH * scale);
+    merger.addTile(coord, outputCanvas);
+    // tileCanvas/padded/fullOutput/outputCanvas drop out of scope here.
+    options.onProgress?.(30 + Math.round(((i + 1) / coords.length) * 65));
   }
 
-  const merged = mergeTiles(processedTiles, tilingOpts, width, height);
+  const merged = merger.finalize();
   options.onProgress?.(99);
 
   return {
