@@ -77,6 +77,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   revertTo: (id) => {
+    // By design: jumping to a history entry doesn't push a new entry — the
+    // history panel itself is the navigation UI, and re-pushing the same URL
+    // would create a "revert to revert" loop in the list. The entry's blob
+    // URL is shared with the history slot so we don't revoke `currentImageUrl`
+    // here either.
     const { history } = get();
     const entry = history.find((h) => h.id === id);
     if (entry) {

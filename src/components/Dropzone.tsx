@@ -1,21 +1,13 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from '@/hooks/useToast';
-import { isHeicFile, heicToJpeg } from '@/lib/heic';
+import { isHeicFile } from '@/lib/heic';
+import { readImageFile, PHOTO_ACCEPT_ATTR } from '@/lib/imageFile';
 
-const MAX_IMAGE_SIZE = 32 * 1024 * 1024; // 32 MB
 const MAX_VIDEO_SIZE = 4 * 1024 * 1024 * 1024; // 4 GB
-const ACCEPTED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
-const HEIC_MIME_TYPES = ['image/heic', 'image/heif'];
-const ACCEPT_ATTR = [
-  ...ACCEPTED_IMAGE_TYPES,
-  ...HEIC_MIME_TYPES,
-  '.heic',
-  '.heif',
-  'video/*',
-].join(',');
+const ACCEPT_ATTR = `${PHOTO_ACCEPT_ATTR},video/*`;
 
 interface DropzoneProps {
   onFile: (file: File) => void;
@@ -27,48 +19,65 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [isConverting, setIsConverting] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+
+  // Track unmount so async HEIC conversion (which can take seconds) doesn't
+  // call setState / toast on a dead component, and any in-flight blob URL
+  // gets revoked instead of leaking.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (previewRef.current) {
+        URL.revokeObjectURL(previewRef.current);
+        previewRef.current = null;
+      }
+    };
+  }, []);
+
+  const setPreviewWithRevoke = useCallback((nextUrl: string | null) => {
+    const prev = previewRef.current;
+    previewRef.current = nextUrl;
+    setPreview(nextUrl);
+    if (prev && prev !== nextUrl) URL.revokeObjectURL(prev);
+  }, []);
 
   const handleFile = useCallback(
     async (input: File) => {
-      let file = input;
-      const heic = isHeicFile(file);
-      const isVideo = file.type.startsWith('video/');
+      const isVideo = input.type.startsWith('video/');
 
       // Size check happens before HEIC decode so a 200 MB HEIC fails fast
       // without spending CPU on conversion.
-      const limit = isVideo ? MAX_VIDEO_SIZE : MAX_IMAGE_SIZE;
-      if (file.size > limit) {
-        toast({ title: t('errors.fileTooLarge'), variant: 'destructive' });
-        return;
-      }
-
-      if (heic) {
-        setIsConverting(true);
-        try {
-          file = await heicToJpeg(file);
-        } catch (err) {
-          setIsConverting(false);
-          toast({
-            title: t('errors.heicConversionFailed'),
-            description: err instanceof Error ? err.message : String(err),
-            variant: 'destructive',
-          });
+      if (isVideo) {
+        if (input.size > MAX_VIDEO_SIZE) {
+          if (mountedRef.current) toast({ title: t('errors.fileTooLarge'), variant: 'destructive' });
           return;
         }
-        setIsConverting(false);
-      }
-
-      const isImage = ACCEPTED_IMAGE_TYPES.includes(file.type);
-      if (!isImage && !isVideo) {
-        toast({ title: t('errors.unsupportedFormat'), variant: 'destructive' });
+        if (mountedRef.current) onFile(input);
         return;
       }
 
-      // Preview only makes sense for images — leave the dropzone intact for videos.
-      if (isImage) setPreview(URL.createObjectURL(file));
-      onFile(file);
+      const willConvert = isHeicFile(input);
+      if (willConvert && mountedRef.current) setIsConverting(true);
+      const result = await readImageFile(input);
+      if (!mountedRef.current) return;
+      if (willConvert) setIsConverting(false);
+
+      if (!result.ok) {
+        toast({
+          title: t(result.messageKey),
+          description: result.description,
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setPreviewWithRevoke(URL.createObjectURL(result.file));
+      onFile(result.file);
     },
-    [onFile, t]
+    [onFile, t, setPreviewWithRevoke],
   );
 
   const onDrop = useCallback(
@@ -78,17 +87,21 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
       const file = e.dataTransfer.files[0];
       if (file) void handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
 
   const onInputChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
-      if (file) void handleFile(file);
       e.target.value = '';
+      if (file) void handleFile(file);
     },
-    [handleFile]
+    [handleFile],
   );
+
+  const triggerInput = useCallback(() => {
+    inputRef.current?.click();
+  }, []);
 
   return (
     <div
@@ -99,7 +112,7 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
         'border-border hover:border-primary/60 bg-muted/30 hover:bg-muted/50',
         isDragging && 'border-primary bg-primary/10',
         preview && 'border-transparent',
-        className
+        className,
       )}
       onDragOver={(e) => {
         e.preventDefault();
@@ -107,15 +120,13 @@ export default function Dropzone({ onFile, className }: DropzoneProps) {
       }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={onDrop}
-      onClick={() => document.getElementById('dropzone-input')?.click()}
+      onClick={triggerInput}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          document.getElementById('dropzone-input')?.click();
-        }
+        if (e.key === 'Enter' || e.key === ' ') triggerInput();
       }}
     >
       <input
-        id="dropzone-input"
+        ref={inputRef}
         type="file"
         accept={ACCEPT_ATTR}
         className="sr-only"
