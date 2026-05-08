@@ -1,7 +1,7 @@
 import * as Comlink from 'comlink';
-import type { InferenceWorkerApi } from '@/workers/inference.worker';
 import { getModel } from '@/ml/modelRegistry';
 import { loadModel, isModelCached } from '@/ml/modelLoader';
+import { getInferenceWorker, terminateInferenceWorker } from '@/ml/inferenceClient';
 import { splitTiles, mergeTiles, type TileOptions, type ProcessedTile } from '@/ml/utils/tiling';
 import { canvasToNCHW, nchwToCanvas } from '@/ml/utils/tensor';
 
@@ -16,33 +16,6 @@ export interface UpscaleResult {
   canvas: HTMLCanvasElement;
   scale: number;
   elapsedMs: number;
-}
-
-let worker: Worker | null = null;
-let workerApi: Comlink.Remote<InferenceWorkerApi> | null = null;
-
-function getWorker(): Comlink.Remote<InferenceWorkerApi> {
-  if (!worker) {
-    console.log('[Upscale] Spawning inference worker...');
-    worker = new Worker(new URL('../../workers/inference.worker.ts', import.meta.url), {
-      type: 'module',
-    });
-    worker.onerror = (e) => console.error('[Upscale] Worker error:', e);
-    workerApi = Comlink.wrap<InferenceWorkerApi>(worker);
-    console.log('[Upscale] Worker spawned');
-  }
-  return workerApi!;
-}
-
-function terminateWorker() {
-  if (workerApi) {
-    void workerApi.destroy();
-    workerApi = null;
-  }
-  if (worker) {
-    worker.terminate();
-    worker = null;
-  }
 }
 
 function padCanvas(
@@ -86,12 +59,12 @@ export async function upscale(
   });
   options.onProgress?.(15);
 
-  const scale = 4;
+  const scale = model.scale ?? 4;
   const modelH = model.inputShape[2];
   const modelW = model.inputShape[3];
   const { width, height } = canvas;
 
-  const api = getWorker();
+  const api = getInferenceWorker();
   console.log('[Upscale] Creating worker session...');
   const preferredBackend = model.forceWasm ? 'wasm' : 'webgpu';
   const backend = await api.initSession(
@@ -160,4 +133,4 @@ export async function upscale(
   };
 }
 
-export { isModelCached, terminateWorker };
+export { isModelCached, terminateInferenceWorker };

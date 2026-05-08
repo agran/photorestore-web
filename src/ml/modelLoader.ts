@@ -1,6 +1,7 @@
 export type ProgressCallback = (loaded: number, total: number) => void;
 
 const MODEL_CACHE_NAME = 'photorestore-models-v1';
+const inFlight = new Map<string, Promise<ArrayBuffer>>();
 
 function resolveUrl(rawUrl: string): string {
   if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
@@ -16,22 +17,14 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
     .join('');
 }
 
-export async function loadModel(
-  url: string,
+async function fetchAndCache(
+  resolvedUrl: string,
   opts: {
     expectedSha256?: string;
     onProgress?: ProgressCallback;
-  } = {}
+  }
 ): Promise<ArrayBuffer> {
   const { expectedSha256, onProgress } = opts;
-  const resolvedUrl = resolveUrl(url);
-
-  const cache = await caches.open(MODEL_CACHE_NAME);
-  const cached = await cache.match(resolvedUrl);
-  if (cached) {
-    const buffer = await cached.arrayBuffer();
-    return buffer;
-  }
 
   const response = await fetch(resolvedUrl);
   if (!response.ok) {
@@ -73,17 +66,46 @@ export async function loadModel(
     const actual = await sha256Hex(buffer);
     if (actual !== expectedSha256) {
       throw new Error(
-        `SHA-256 mismatch for model ${url}. Expected: ${expectedSha256}, got: ${actual}`
+        `SHA-256 mismatch for model ${resolvedUrl}. Expected: ${expectedSha256}, got: ${actual}`
       );
     }
   }
 
+  const cache = await caches.open(MODEL_CACHE_NAME);
   const responseToCache = new Response(buffer, {
     headers: { 'Content-Type': 'application/octet-stream' },
   });
   await cache.put(resolvedUrl, responseToCache);
 
   return buffer;
+}
+
+export async function loadModel(
+  url: string,
+  opts: {
+    expectedSha256?: string;
+    onProgress?: ProgressCallback;
+  } = {}
+): Promise<ArrayBuffer> {
+  const { onProgress } = opts;
+  const resolvedUrl = resolveUrl(url);
+
+  const cache = await caches.open(MODEL_CACHE_NAME);
+  const cached = await cache.match(resolvedUrl);
+  if (cached) {
+    const buffer = await cached.arrayBuffer();
+    onProgress?.(buffer.byteLength, buffer.byteLength);
+    return buffer;
+  }
+
+  const existing = inFlight.get(resolvedUrl);
+  if (existing) return existing;
+
+  const promise = fetchAndCache(resolvedUrl, opts).finally(() => {
+    inFlight.delete(resolvedUrl);
+  });
+  inFlight.set(resolvedUrl, promise);
+  return promise;
 }
 
 /** Check whether a model is already cached */

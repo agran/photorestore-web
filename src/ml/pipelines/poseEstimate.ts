@@ -264,16 +264,21 @@ export async function estimatePoses(canvas: HTMLCanvasElement): Promise<PoseEsti
   const srcW = canvas.width;
   const srcH = canvas.height;
 
-  const outputs = await api.runMulti(
-    Comlink.transfer(tensorData, [tensorData.buffer]),
-    [1, 3, INPUT_H, INPUT_W],
-    getModel(MODEL_ID)!.url,
-  );
+  try {
+    const outputs = await api.runMulti(
+      Comlink.transfer(tensorData, [tensorData.buffer]),
+      [1, 3, INPUT_H, INPUT_W],
+      getModel(MODEL_ID)!.url,
+    );
 
-  const outputData = outputs['output0'] ?? outputs[Object.keys(outputs)[0]];
-  if (!outputData) return [];
+    const outputData = outputs['output0'] ?? outputs[Object.keys(outputs)[0]];
+    if (!outputData) return [];
 
-  return parsePoseOutput(outputData.data, outputData.dims, scale, padX, padY, srcW, srcH);
+    return parsePoseOutput(outputData.data, outputData.dims, scale, padX, padY, srcW, srcH);
+  } catch {
+    sessionReady = false;
+    throw new Error('Pose estimation failed — session has been reset');
+  }
 }
 
 /**

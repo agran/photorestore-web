@@ -345,7 +345,7 @@ export async function anonymize(
         applySolid(ctx, canvas, box, resolvedOpts.solidColor, pad, feather, resolvedOpts.maskShape, cW, cH);
         break;
       case 'emoji':
-        applyEmoji(ctx, canvas, box, resolvedOpts.emojis?.[i] || resolvedOpts.emoji, resolvedOpts.padding, 0, 'rect', cW, cH);
+        applyEmoji(ctx, canvas, box, resolvedOpts.emojis?.[i] || resolvedOpts.emoji, pad, 0, resolvedOpts.maskShape, cW, cH);
         break;
     }
   }

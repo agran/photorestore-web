@@ -19,6 +19,9 @@ export interface ModelMeta {
   /** Relative inference speed bucket for the dropdown. Calibrated against
    *  in-browser benchmarks (see src/dev/benchmark.ts). */
   speedClass?: 'fast' | 'medium' | 'slow' | 'very-slow';
+  /** Scale factor for upscale models (output / input). Read by upscale pipeline
+   *  instead of hardcoded 4. */
+  scale?: number;
 }
 
 function modelUrl(filename: string): string {
@@ -39,6 +42,7 @@ const MODELS: ModelMeta[] = [
     license: 'BSD-3-Clause',
     descriptionKey: 'models.realesrgan-x4plus',
     pipeline: 'upscale',
+    scale: 4,
     tags: ['upscale', 'general'],
     speedClass: 'medium',
   },
@@ -52,6 +56,7 @@ const MODELS: ModelMeta[] = [
     license: 'MIT',
     descriptionKey: 'models.cugan-up4x',
     pipeline: 'upscale',
+    scale: 4,
     tags: ['upscale', 'general'],
     speedClass: 'fast',
   },
@@ -65,6 +70,7 @@ const MODELS: ModelMeta[] = [
     license: 'MIT',
     descriptionKey: 'models.cugan-up4x-denoise',
     pipeline: 'upscale',
+    scale: 4,
     tags: ['upscale', 'denoise'],
     speedClass: 'fast',
   },
@@ -78,6 +84,7 @@ const MODELS: ModelMeta[] = [
     license: 'BSD-3-Clause',
     descriptionKey: 'models.nmkd-superscale',
     pipeline: 'upscale',
+    scale: 4,
     tags: ['upscale', 'general', 'photo'],
     preferNchw: true,
     speedClass: 'slow',
@@ -92,6 +99,7 @@ const MODELS: ModelMeta[] = [
     license: 'MIT',
     descriptionKey: 'models.nomos8ksc',
     pipeline: 'upscale',
+    scale: 4,
     tags: ['upscale', 'general', 'photo'],
     preferNchw: true,
     speedClass: 'slow',
@@ -106,6 +114,7 @@ const MODELS: ModelMeta[] = [
     license: 'MIT',
     descriptionKey: 'models.lsdir-dat',
     pipeline: 'upscale',
+    scale: 4,
     tags: ['upscale', 'general', 'photo'],
     preferNchw: true,
     speedClass: 'very-slow',

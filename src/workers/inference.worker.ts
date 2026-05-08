@@ -6,7 +6,9 @@ self.onunhandledrejection = (e) => console.error('[ORT Worker] Unhandled:', e.re
 
 type BackendType = 'webgpu' | 'wasm';
 
-const sessions = new Map<string, ort.InferenceSession>();
+const sessions = new Map<string, { session: ort.InferenceSession; backend: BackendType }>();
+const pendingSessions = new Map<string, Promise<BackendType>>();
+let runtimeInitialized = false;
 
 // ORT WebGPU EP shares a global device across sessions and is not safe to
 // re-enter. If two pipelines (face detect + pose estimate) await runs in
@@ -80,60 +82,76 @@ export interface InferenceWorkerApi {
 
 const api: InferenceWorkerApi = {
   async initSession(modelBuffer, modelUrl, backend, preferNchw) {
-    if (sessions.has(modelUrl)) return backend;
+    const existing = sessions.get(modelUrl);
+    if (existing) return existing.backend;
 
-    console.log('[ORT] Detecting backend...');
-    const detectedBackend = await detectBackend();
-    console.log(`[ORT] Detected: ${detectedBackend}`);
-    const effectiveBackend =
-      backend === 'webgpu' && detectedBackend === 'webgpu' ? 'webgpu' : 'wasm';
+    const pending = pendingSessions.get(modelUrl);
+    if (pending) return pending;
 
-    console.log(
-      `[ORT] Backend: ${effectiveBackend.toUpperCase()}${effectiveBackend === 'webgpu' ? ' (GPU)' : ' (CPU)'}`
-    );
+    const creationPromise = (async () => {
+      console.log('[ORT] Detecting backend...');
+      const detectedBackend = await detectBackend();
+      console.log(`[ORT] Detected: ${detectedBackend}`);
+      const effectiveBackend =
+        backend === 'webgpu' && detectedBackend === 'webgpu' ? 'webgpu' : 'wasm';
 
-    setupRuntime(4, true);
-    console.log('[ORT] Creating InferenceSession...');
-    const webgpuEp = preferNchw
-      ? { name: 'webgpu' as const, preferredLayout: 'NCHW' as const }
-      : ('webgpu' as const);
-    const session = await ort.InferenceSession.create(modelBuffer, {
-      executionProviders: effectiveBackend === 'webgpu' ? [webgpuEp, 'wasm'] : ['wasm'],
-      graphOptimizationLevel: preferNchw ? 'basic' : 'all',
-    });
-    console.log('[ORT] Session created');
+      console.log(
+        `[ORT] Backend: ${effectiveBackend.toUpperCase()}${effectiveBackend === 'webgpu' ? ' (GPU)' : ' (CPU)'}`
+      );
 
-    sessions.set(modelUrl, session);
-    console.log(`[ORT] Inputs: ${session.inputNames.join(', ')}`);
-    console.log(`[ORT] Outputs: ${session.outputNames.join(', ')}`);
-    return effectiveBackend;
+      if (!runtimeInitialized) {
+        setupRuntime(4, true);
+        runtimeInitialized = true;
+      }
+      console.log('[ORT] Creating InferenceSession...');
+      const webgpuEp = preferNchw
+        ? { name: 'webgpu' as const, preferredLayout: 'NCHW' as const }
+        : ('webgpu' as const);
+      const session = await ort.InferenceSession.create(modelBuffer, {
+        executionProviders: effectiveBackend === 'webgpu' ? [webgpuEp, 'wasm'] : ['wasm'],
+        graphOptimizationLevel: preferNchw ? 'basic' : 'all',
+      });
+      console.log('[ORT] Session created');
+
+      sessions.set(modelUrl, { session, backend: effectiveBackend });
+      console.log(`[ORT] Inputs: ${session.inputNames.join(', ')}`);
+      console.log(`[ORT] Outputs: ${session.outputNames.join(', ')}`);
+      return effectiveBackend;
+    })();
+
+    pendingSessions.set(modelUrl, creationPromise);
+    try {
+      return await creationPromise;
+    } finally {
+      pendingSessions.delete(modelUrl);
+    }
   },
 
   async run(inputTensor, inputShape, modelUrl) {
-    const session = sessions.get(modelUrl);
-    if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
+    const entry = sessions.get(modelUrl);
+    if (!entry) throw new Error(`Session not initialized for ${modelUrl}`);
 
     return serializeRun(async () => {
-      const inputName = session.inputNames[0];
-      const outputName = session.outputNames[0];
+      const inputName = entry.session.inputNames[0];
+      const outputName = entry.session.outputNames[0];
 
       const feeds: Record<string, ort.Tensor> = {
         [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
       };
 
-      const results = await session.run(feeds);
+      const results = await entry.session.run(feeds);
       const output = results[outputName];
 
-      return new Float32Array(output.data as Float32Array);
+      return output.data as Float32Array;
     });
   },
 
   async runMulti(inputTensor, inputShape, modelUrl, extraInputs) {
-    const session = sessions.get(modelUrl);
-    if (!session) throw new Error(`Session not initialized for ${modelUrl}`);
+    const entry = sessions.get(modelUrl);
+    if (!entry) throw new Error(`Session not initialized for ${modelUrl}`);
 
     return serializeRun(async () => {
-      const inputName = session.inputNames[0];
+      const inputName = entry.session.inputNames[0];
 
       const feeds: Record<string, ort.Tensor> = {
         [inputName]: new ort.Tensor('float32', inputTensor, inputShape),
@@ -150,13 +168,13 @@ const api: InferenceWorkerApi = {
         }
       }
 
-      const results = await session.run(feeds);
+      const results = await entry.session.run(feeds);
 
       const record: Record<string, { data: Float32Array; dims: number[] }> = {};
-      for (const name of session.outputNames) {
+      for (const name of entry.session.outputNames) {
         const output = results[name];
         record[name] = {
-          data: new Float32Array(output.data as Float32Array),
+          data: output.data as Float32Array,
           dims: output.dims.slice(),
         };
       }
@@ -165,7 +183,7 @@ const api: InferenceWorkerApi = {
   },
 
   async destroy() {
-    const releases = Array.from(sessions.values()).map((s) => s.release());
+    const releases = Array.from(sessions.values()).map((s) => s.session.release());
     await Promise.all(releases);
     sessions.clear();
   },

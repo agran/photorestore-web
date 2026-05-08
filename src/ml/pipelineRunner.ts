@@ -90,10 +90,11 @@ export async function runPipeline(
         break;
       case 'inpaint': {
         const inpaintOpts = options as InpaintOptions;
-        if (!inpaintOpts?.maskCanvas) {
-          inpaintOpts.maskCanvas = createDefaultMask(canvas.width, canvas.height);
+        const opts = { ...inpaintOpts };
+        if (!opts.maskCanvas) {
+          opts.maskCanvas = createDefaultMask(canvas.width, canvas.height);
         }
-        result = await inpaint(canvas, inpaintOpts);
+        result = await inpaint(canvas, opts);
         break;
       }
       case 'denoise':

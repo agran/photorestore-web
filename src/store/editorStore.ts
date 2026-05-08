@@ -43,24 +43,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeJob: null,
 
   setImage: (url) => {
-    const { originalImageUrl } = get();
+    const { originalImageUrl, currentImageUrl } = get();
+    if (currentImageUrl && currentImageUrl !== originalImageUrl && currentImageUrl !== url) {
+      URL.revokeObjectURL(currentImageUrl);
+    }
     set({
       currentImageUrl: url,
       originalImageUrl: originalImageUrl ?? url,
     });
   },
 
-  loadNewImage: (url) =>
+  loadNewImage: (url) => {
+    const { currentImageUrl } = get();
+    if (currentImageUrl && currentImageUrl !== url) {
+      URL.revokeObjectURL(currentImageUrl);
+    }
     set({
       currentImageUrl: url,
       originalImageUrl: url,
-    }),
+    });
+  },
 
   pushHistory: (entry) => {
     const id = crypto.randomUUID();
-    set((state) => ({
-      history: [{ ...entry, id, timestamp: Date.now() }, ...state.history].slice(0, 20), // keep last 20 entries
-    }));
+    set((state) => {
+      const next = [{ ...entry, id, timestamp: Date.now() }, ...state.history];
+      const evicted = next.slice(20);
+      for (const e of evicted) {
+        URL.revokeObjectURL(e.imageUrl);
+      }
+      return { history: next.slice(0, 20) };
+    });
   },
 
   revertTo: (id) => {
@@ -76,11 +89,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   updateJobProgress: (progress) =>
     set((state) => (state.activeJob ? { activeJob: { ...state.activeJob, progress } } : {})),
 
-  reset: () =>
-    set({
+  reset: () => {
+    const state = get();
+    if (state.currentImageUrl) URL.revokeObjectURL(state.currentImageUrl);
+    if (state.originalImageUrl && state.originalImageUrl !== state.currentImageUrl) {
+      URL.revokeObjectURL(state.originalImageUrl);
+    }
+    for (const entry of state.history) {
+      URL.revokeObjectURL(entry.imageUrl);
+    }
+    return set({
       currentImageUrl: null,
       originalImageUrl: null,
       history: [],
       activeJob: null,
-    }),
+    });
+  },
 }));

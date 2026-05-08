@@ -1,5 +1,5 @@
 import { getModelsByPipeline, type ModelMeta } from '@/ml/modelRegistry';
-import { upscale, terminateWorker as terminateUpscaleWorker } from '@/ml/pipelines/upscale';
+import { upscale } from '@/ml/pipelines/upscale';
 import { detectFaces } from '@/ml/pipelines/anonymize';
 import { anonymizeVideo } from '@/ml/pipelines/anonymizeVideo';
 import { terminateInferenceWorker } from '@/ml/inferenceClient';
@@ -145,7 +145,7 @@ async function benchUpscale(options: BenchOptions = {}): Promise<void> {
     // Recreate the worker between models — multiple WebGPU sessions in
     // one ORT instance share device state and can interfere with each
     // other (Transpose recursive, AveragePool kernel reuse, etc).
-    terminateUpscaleWorker();
+    void terminateInferenceWorker();
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
     console.log(`  [progress] ${idx + 1}/${models.length} done, total elapsed ${elapsed}s`);
   }
