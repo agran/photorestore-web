@@ -64,19 +64,20 @@ function letterbox(
 function prepareInput(canvas: HTMLCanvasElement): Float32Array {
   const ctx = canvas.getContext('2d')!;
   const imageData = ctx.getImageData(0, 0, INPUT_W, INPUT_H);
-  const { data } = imageData;
-  const rgb = new Float32Array(3 * INPUT_H * INPUT_W);
+  const data = imageData.data;
+  const plane = INPUT_H * INPUT_W;
+  const rgb = new Float32Array(3 * plane);
+  const inv255 = 1 / 255;
 
-  for (let h = 0; h < INPUT_H; h++) {
-    for (let w = 0; w < INPUT_W; w++) {
-      const srcIdx = (h * INPUT_W + w) * 4;
-      const dstIdxR = 0 * INPUT_H * INPUT_W + h * INPUT_W + w;
-      const dstIdxG = 1 * INPUT_H * INPUT_W + h * INPUT_W + w;
-      const dstIdxB = 2 * INPUT_H * INPUT_W + h * INPUT_W + w;
-      rgb[dstIdxR] = data[srcIdx] / 255;
-      rgb[dstIdxG] = data[srcIdx + 1] / 255;
-      rgb[dstIdxB] = data[srcIdx + 2] / 255;
-    }
+  // Flat single-pass — at 704×576 this is ~405k iterations. The previous
+  // double-loop form recomputed the channel offset arithmetic every
+  // iteration and ran ~30 times per second per body-tracking keyframe.
+  let pi = 0;
+  for (let i = 0; i < plane; i++) {
+    rgb[i] = data[pi] * inv255;
+    rgb[plane + i] = data[pi + 1] * inv255;
+    rgb[2 * plane + i] = data[pi + 2] * inv255;
+    pi += 4;
   }
   return rgb;
 }

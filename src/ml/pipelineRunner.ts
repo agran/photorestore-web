@@ -9,6 +9,17 @@ import { getModel } from '@/ml/modelRegistry';
 
 export type PipelineType = 'upscale' | 'faceRestore' | 'inpaint' | 'denoise' | 'anonymize';
 
+// Discriminated union: each variant locks `type` to one PipelineType, so the
+// switch below narrows `options` to the exact pipeline's option shape and a
+// future field clash between pipelines (e.g. inpaint adding `effect`) becomes
+// a type error instead of a silent miscall.
+type PipelineCall =
+  | { type: 'upscale'; options?: UpscaleOptions }
+  | { type: 'faceRestore'; options?: FaceRestoreOptions }
+  | { type: 'inpaint'; options?: InpaintOptions }
+  | { type: 'denoise'; options?: DenoiseOptions }
+  | { type: 'anonymize'; options?: AnonymizeOptions };
+
 type PipelineOptions = UpscaleOptions | FaceRestoreOptions | InpaintOptions | DenoiseOptions | AnonymizeOptions;
 
 function loadImageToCanvas(url: string): Promise<HTMLCanvasElement> {
@@ -26,7 +37,14 @@ function loadImageToCanvas(url: string): Promise<HTMLCanvasElement> {
       ctx.drawImage(img, 0, 0);
       resolve(canvas);
     };
-    img.onerror = () => reject(new Error('Failed to load image'));
+    img.onerror = (event) => {
+      // The browser doesn't expose the underlying network error here — best we
+      // can do is surface the URL kind so debugging "blob not found" vs CORS
+      // vs decode failure is at least possible.
+      const kind = url.startsWith('blob:') ? 'blob' : url.startsWith('data:') ? 'data' : 'remote';
+      const detail = typeof event === 'string' ? event : '';
+      reject(new Error(`Failed to load image (${kind} url${detail ? `: ${detail}` : ''})`));
+    };
     img.src = url;
   });
 }
@@ -40,6 +58,12 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+/**
+ * Inpaint requires a real user-painted mask. The "fill the entire image"
+ * fallback that lived here was misleading — it would silently inpaint
+ * everything if the UI forgot to pass a mask. Now callers must pass one,
+ * and this helper exists only as an opt-in placeholder for tests / demos.
+ */
 function createDefaultMask(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -74,9 +98,12 @@ export async function runPipeline(
 
     let result: { canvas: HTMLCanvasElement };
 
-    switch (type) {
+    // Build a discriminated call to narrow options per branch — TS will
+    // complain if a pipeline gains an option that conflicts with another.
+    const call = { type, options } as PipelineCall;
+    switch (call.type) {
       case 'upscale': {
-        const upsOpts = options as UpscaleOptions;
+        const upsOpts = call.options;
         result = await upscale(canvas, {
           ...upsOpts,
           tileSize: upsOpts?.tileSize ?? settings.tileSize,
@@ -86,25 +113,28 @@ export async function runPipeline(
         break;
       }
       case 'faceRestore':
-        result = await faceRestore(canvas, options as FaceRestoreOptions);
+        result = await faceRestore(canvas, call.options);
         break;
       case 'inpaint': {
-        const inpaintOpts = options as InpaintOptions;
-        const opts = { ...inpaintOpts };
-        if (!opts.maskCanvas) {
-          opts.maskCanvas = createDefaultMask(canvas.width, canvas.height);
-        }
+        const inpaintOpts = call.options;
+        const opts: InpaintOptions = {
+          ...inpaintOpts,
+          maskCanvas:
+            inpaintOpts?.maskCanvas ?? createDefaultMask(canvas.width, canvas.height),
+        };
         result = await inpaint(canvas, opts);
         break;
       }
       case 'denoise':
-        result = await denoise(canvas, options as DenoiseOptions);
+        result = await denoise(canvas, call.options);
         break;
       case 'anonymize':
-        result = await anonymize(canvas, options);
+        result = await anonymize(canvas, call.options);
         break;
-      default:
-        throw new Error(`Unknown pipeline: ${String(type)}`);
+      default: {
+        const _exhaustive: never = call;
+        throw new Error(`Unknown pipeline: ${String((_exhaustive as { type: unknown }).type)}`);
+      }
     }
 
     const blob = await canvasToBlob(result.canvas);

@@ -163,7 +163,7 @@ export class FaceTracker {
     this.maxLost = options.maxLost ?? 40;
   }
 
-  update(detections: FaceBox[], _confThreshold = 0.5, frameW = 1, frameH = 1): TrackedFace[] {
+  update(detections: FaceBox[], frameW = 1, frameH = 1): TrackedFace[] {
     const highDets = detections.filter((d) => d.confidence >= 0.5);
     const lowDets = detections.filter((d) => d.confidence < 0.5 && d.confidence >= 0.2);
 
@@ -313,23 +313,28 @@ export class FaceTracker {
   }
 
   predict(frameW = 1, frameH = 1): TrackedFace[] {
-    // Predict with lost status if track hasn't been updated recently
-    this.tracks = this.tracks.map((t, i) => {
+    // Predict with lost status if track hasn't been updated recently. Done
+    // in-place to avoid allocating a fresh array per frame — at 30 fps with
+    // 50 active tracks this saves ~1500 allocations/sec.
+    for (let i = 0; i < this.tracks.length; i++) {
       const isLost = (this.lostCounts[i] || 0) > 0;
-      return kalmanPredict(t, 1, isLost);
-    });
-    return this.buildResults(this.tracks.map(() => true), this.tracks, frameW, frameH, this.emaPredict);
+      this.tracks[i] = kalmanPredict(this.tracks[i], 1, isLost);
+    }
+    // null keepMask = keep all (avoids allocating an all-true array per frame).
+    return this.buildResults(null, this.tracks, frameW, frameH, this.emaPredict);
   }
 
   private buildResults(
-    keepMask: boolean[],
+    keepMask: boolean[] | null,
     states: KalmanState[],
     frameW: number,
     frameH: number,
     ema: number,
   ): TrackedFace[] {
     const results: TrackedFace[] = [];
-    const currentTracks = keepMask.map((k, i) => (k ? states[i] : null)).filter((t): t is KalmanState => t !== null);
+    const currentTracks = keepMask === null
+      ? states
+      : keepMask.map((k, i) => (k ? states[i] : null)).filter((t): t is KalmanState => t !== null);
 
     for (let i = 0; i < currentTracks.length; i++) {
       const t = currentTracks[i];

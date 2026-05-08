@@ -39,27 +39,52 @@ async function fetchAndCache(
     throw new Error('ReadableStream not supported');
   }
 
-  const chunks: Uint8Array[] = [];
+  // When Content-Length is known we can stream chunks straight into a single
+  // pre-allocated ArrayBuffer — avoids the doubled peak memory ("chunks
+  // array" + "concatenated buffer") that hurts on 350 MB models.
+  let buffer: ArrayBuffer;
+  let view: Uint8Array;
   let loaded = 0;
 
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      loaded += value.byteLength;
+  if (total > 0) {
+    buffer = new ArrayBuffer(total);
+    view = new Uint8Array(buffer);
+
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      // Defensive: trust total but stop overflowing the buffer if the server
+      // streamed more bytes than Content-Length advertised.
+      const writable = Math.min(value.byteLength, total - loaded);
+      if (writable > 0) {
+        view.set(value.subarray(0, writable), loaded);
+        loaded += writable;
+      }
       onProgress?.(loaded, total);
     }
-  }
-
-  const totalBytes = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-  const buffer = new ArrayBuffer(totalBytes);
-  const view = new Uint8Array(buffer);
-  let offset = 0;
-  for (const chunk of chunks) {
-    view.set(chunk, offset);
-    offset += chunk.byteLength;
+  } else {
+    // Unknown size — fall back to chunk array + concat. Doubles peak memory
+    // but only for the duration of this branch.
+    const chunks: Uint8Array[] = [];
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        chunks.push(value);
+        loaded += value.byteLength;
+        onProgress?.(loaded, 0);
+      }
+    }
+    buffer = new ArrayBuffer(loaded);
+    view = new Uint8Array(buffer);
+    let offset = 0;
+    for (const chunk of chunks) {
+      view.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
   }
 
   if (expectedSha256 && expectedSha256.length > 0) {

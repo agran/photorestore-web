@@ -66,10 +66,13 @@ export default function Editor() {
 
   const handleRunTool = async () => {
     if (!currentImageUrl || !activeTool) return;
-    const options: Record<string, unknown> =
-      activeTool === 'inpaint' ? { maskCanvas: createDefaultMask(1, 1) } : { tileSize, tileOverlap };
-    if (activeTool === 'upscale') {
-      options.modelId = upscaleModelId;
+    let options: Record<string, unknown> = {};
+    if (activeTool === 'inpaint') {
+      options = { maskCanvas: createDefaultMask(1, 1) };
+    } else if (activeTool === 'upscale') {
+      // Only the upscale pipeline reads tileSize/tileOverlap; passing them
+      // to faceRestore/denoise is dead-flow that masks future bugs.
+      options = { tileSize, tileOverlap, modelId: upscaleModelId };
     }
     // Upscale always runs from the pristine original when one exists —
     // chaining upscalers compounds artifacts, and the typical reason to
@@ -85,6 +88,15 @@ export default function Editor() {
     }
   };
 
+  // NOTE on photo loading paths:
+  // - Dropzone drop / Home upload → handleFile → setImage(url): keeps the
+  //   existing originalImageUrl, so before/after still references the prior
+  //   photo. This makes sense when the user is iterating tools on the same
+  //   image but receives a "fresh" canvas via Dropzone preview swap.
+  // - "Open another photo" button → handleNewPhotoFile → loadNewImage(url):
+  //   replaces BOTH currentImageUrl and originalImageUrl, treating the new
+  //   file as a fresh start so before/after and "revert to original" point
+  //   at the new photo.
   const handleFile = (file: File) => {
     if (file.type.startsWith('video/')) {
       loadVideoFile(file)

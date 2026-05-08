@@ -2,7 +2,11 @@ import * as React from 'react';
 import type { ToastActionElement, ToastProps } from '@/components/ui/toast';
 
 const TOAST_LIMIT = 5;
-const TOAST_REMOVE_DELAY = 1_000_000;
+// Time between dismiss (start of fade-out) and full removal from state.
+// shadcn-ui's stock value of 1_000_000 ms (~16 min) keeps stale toasts
+// around long after they've animated away — 5 s is plenty for the close
+// animation to finish.
+const TOAST_REMOVE_DELAY = 5_000;
 
 type ToasterToast = ToastProps & {
   id: string;
@@ -100,13 +104,16 @@ function toast({ ...props }: Toast2) {
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState);
 
+  // Subscription is per-instance, not per-state — tying it to [state] would
+  // re-add/remove the listener on every toast change, churning the array
+  // for no reason.
   React.useEffect(() => {
     listeners.push(setState);
     return () => {
       const idx = listeners.indexOf(setState);
       if (idx > -1) listeners.splice(idx, 1);
     };
-  }, [state]);
+  }, []);
 
   return {
     ...state,

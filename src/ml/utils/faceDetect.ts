@@ -73,18 +73,17 @@ export function prepareOrtInput(
   const chSize = inputH * inputW;
   const floatData = new Float32Array(3 * chSize);
 
-  if (bgr) {
-    for (let i = 0; i < chSize; i++) {
-      floatData[i] = (pixels[i * 4 + 2] - 127.5) / 128;
-      floatData[chSize + i] = (pixels[i * 4 + 1] - 127.5) / 128;
-      floatData[2 * chSize + i] = (pixels[i * 4] - 127.5) / 128;
-    }
-  } else {
-    for (let i = 0; i < chSize; i++) {
-      floatData[i] = (pixels[i * 4] - 127.5) / 128;
-      floatData[chSize + i] = (pixels[i * 4 + 1] - 127.5) / 128;
-      floatData[2 * chSize + i] = (pixels[i * 4 + 2] - 127.5) / 128;
-    }
+  // Channel offsets for BGR vs RGB. Same loop body, just different source
+  // indices — keeps the compiled inner loop tight.
+  const r = bgr ? 2 : 0;
+  const b = bgr ? 0 : 2;
+  const inv128 = 1 / 128;
+  let pi = 0;
+  for (let i = 0; i < chSize; i++) {
+    floatData[i] = (pixels[pi + r] - 127.5) * inv128;
+    floatData[chSize + i] = (pixels[pi + 1] - 127.5) * inv128;
+    floatData[2 * chSize + i] = (pixels[pi + b] - 127.5) * inv128;
+    pi += 4;
   }
   return new ort.Tensor('float32', floatData, [1, 3, inputH, inputW]);
 }
@@ -106,10 +105,12 @@ export function prepareRawInput(sourceCanvas: HTMLCanvasElement, inputW: number,
   const chSize = inputH * inputW;
   const floatData = new Float32Array(3 * chSize);
 
+  let pi = 0;
   for (let i = 0; i < chSize; i++) {
-    floatData[i] = pixels[i * 4];
-    floatData[chSize + i] = pixels[i * 4 + 1];
-    floatData[2 * chSize + i] = pixels[i * 4 + 2];
+    floatData[i] = pixels[pi];
+    floatData[chSize + i] = pixels[pi + 1];
+    floatData[2 * chSize + i] = pixels[pi + 2];
+    pi += 4;
   }
   return new ort.Tensor('float32', floatData, [1, 3, inputH, inputW]);
 }
@@ -126,10 +127,12 @@ export function prepareRetinaFaceInput(sourceCanvas: HTMLCanvasElement, inputW: 
   const chSize = inputH * inputW;
   const floatData = new Float32Array(3 * chSize);
 
+  let pi = 0;
   for (let i = 0; i < chSize; i++) {
-    floatData[i] = pixels[i * 4 + 2] - 104.0;
-    floatData[chSize + i] = pixels[i * 4 + 1] - 117.0;
-    floatData[2 * chSize + i] = pixels[i * 4] - 123.0;
+    floatData[i] = pixels[pi + 2] - 104.0;
+    floatData[chSize + i] = pixels[pi + 1] - 117.0;
+    floatData[2 * chSize + i] = pixels[pi] - 123.0;
+    pi += 4;
   }
   return new ort.Tensor('float32', floatData, [1, 3, inputH, inputW]);
 }
@@ -250,7 +253,10 @@ export function parseScrfdDetections(
     }
   }
 
-  return nms(dets, 0.4);
+  // No NMS here — the caller (anonymize.ts:detectFaces) merges per-tile and
+  // global-pass detections and runs a single NMS on the union. Doing it here
+  // too just wastes CPU and risks dropping boxes the global NMS could keep.
+  return dets;
 }
 
 /**
@@ -311,7 +317,8 @@ export function parseYunetDetections(
     }
   }
 
-  return nms(dets, 0.3);
+  // No per-call NMS — see comment in parseScrfdDetections.
+  return dets;
 }
 
 /**
@@ -394,5 +401,6 @@ export function parseRetinaFaceDetections(
     });
   }
 
-  return nms(dets, 0.4);
+  // No per-call NMS — see comment in parseScrfdDetections.
+  return dets;
 }
