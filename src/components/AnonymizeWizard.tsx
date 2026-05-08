@@ -88,9 +88,16 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
 
   useEffect(() => {
     if (!wizardImageUrl) return;
+    let cancelled = false;
     const img = new Image();
-    img.onload = () => setImgDims({ w: img.naturalWidth, h: img.naturalHeight });
+    img.onload = () => {
+      if (cancelled) return;
+      setImgDims({ w: img.naturalWidth, h: img.naturalHeight });
+    };
     img.src = wizardImageUrl;
+    return () => {
+      cancelled = true;
+    };
   }, [wizardImageUrl]);
 
   const handleDetect = useCallback(async () => {
@@ -146,7 +153,15 @@ export default function AnonymizeWizard({ onResult, onClose }: AnonymizeWizardPr
         if (blob) {
           const url = URL.createObjectURL(blob);
           const name = getModel(modelId)?.name ?? modelId;
-          onResult(url, `${name} — ${t('anonymize.effects.' + effect)}`);
+          // Static keys so i18next-extractor can find them — `t('anonymize.effects.' + effect)`
+          // would be invisible to static analysis.
+          const effectLabel =
+            effect === 'blur' ? t('anonymize.effects.blur')
+            : effect === 'pixelate' ? t('anonymize.effects.pixelate')
+            : effect === 'solid' ? t('anonymize.effects.solid')
+            : effect === 'emoji' ? t('anonymize.effects.emoji')
+            : effect;
+          onResult(url, `${name} — ${effectLabel}`);
           store.setStep('editing');
           store.setPreview(true);
         }
