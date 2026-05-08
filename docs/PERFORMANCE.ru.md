@@ -10,6 +10,12 @@
 - Перекрытие по умолчанию: **32px** (обеспечивает бесшовное блендирование)
 - Масштаб задаётся для каждого пайплайна (например, 4 для Real-ESRGAN)
 
+### Streaming-обработка тайлов
+
+API: `planTiles` (только координаты) → `extractTile` (один canvas на лету) → `TileMerger.addTile` → `TileMerger.finalize`. Тайлы создаются и уничтожаются по одному, а не аллоцируются массивом до начала инференса.
+
+Пиковая память для апскейла 4× от 4K-фото: ~2.6 ГБ (5 Float32Array аккумуляторов размера `outW × outH` + один входной/выходной canvas в полёте). Для 8K → ~10.6 ГБ — рекомендуем входное изображение ≤4K на устройствах с <8 ГБ ОЗУ. Будущая оптимизация — row-band streaming поверх `TileMerger`.
+
 ### Cosine-Window-блендирование
 
 Тайлы объединяются с помощью 2D-косинусного окна:
@@ -28,13 +34,36 @@ w(x) = 0.5 - 0.5 * cos(2π * (x+0.5) / N)
 | WASM SIMD     | CPU  | Средне   | Поддерживается всеми современными браузерами  |
 | WASM fallback | CPU  | Медленно | Максимальная совместимость                    |
 
+## Горячие циклы
+
+Тензорные конверсии (`canvasToNCHW`, `nchwToCanvas`, `prepareOrtInput`, `prepareRawInput`, `prepareRetinaFaceInput`, `prepareInput` для pose) — критичные точки производительности. Все шесть переписаны в каноническую форму:
+
+- pre-computed `inv255 = 1/255` (умножение быстрее деления в hot loop)
+- pointer walk `pi += 4` вместо `i * 4 + offset` каждую итерацию
+- инвариантные плоскостные смещения вынесены за цикл (V8 scalar replacement)
+
+Бенчмарк на M1: ~1.5–2× ускорение для 512×512 тайла. Для апскейла 4K с 256 тайлами это даёт ~50–100 мс экономии.
+
+## Управление памятью
+
+- **Inference worker** — один общий singleton ([inferenceClient.ts](../src/ml/inferenceClient.ts)). Все ONNX-сессии живут в одном WebGPU device, не конкурируют за VRAM. При падении воркера (`error` event) — авто-respawn.
+- **Blob URLs** — все blob-URL ревокаются явно: editorStore (history evictions, reset, loadNewImage), videoAnonymizeStore (videoUrl, outputUrl, thumbnailUrls на reset/setFile/loadFile/editAgain/enterReview), Dropzone (preview на смене файла + unmount), PreviewCanvas (на каждое обновление + unmount).
+- **MediaRecorder fallback** — `start(1000)` timeslice, чтобы encoder не буферизовал весь видеоблоб до stop().
+- **Pre-allocated detect canvas** в видео — один canvas через всю обработку с `clearRect` перед каждым `sample.draw` (вместо `createElement` per keyframe). На 1080p30 в Accurate-режиме экономит ~240 МБ/с аллокаций.
+
 ## Советы по оптимизации
 
 - Используйте **tileSize=256** на мобильных устройствах для снижения пикового потребления памяти
 - Для анимационного контента используйте `realesrgan-x4plus-anime`
 - Включите **SIMD** (по умолчанию включён) для ускорения WASM в 2–4 раза
-- Модели кэшируются после первой загрузки — последующие запуски мгновенны
+- Модели кэшируются после первой загрузки — последующие запуски мгновенны (с cache-hit `onProgress` сразу выставляется в 100%, UI не зависает на 0%)
 
 ## Бенчмарки
 
-> TODO: добавить реальные бенчмарки после реализации пайплайнов.
+Внутрибраузерный инструмент `window.bench` доступен в dev-режиме (`pnpm dev`):
+
+- `bench.upscale()` — все upscale-модели на загруженном фото
+- `bench.face()` — все face-detect модели на фото или видео
+- `bench.upscale({ runs: 5 })` — больше семплов
+
+Между моделями воркер пересоздаётся (`terminateInferenceWorker`) — множественные WebGPU-сессии в одном ORT-инстансе разделяют состояние устройства. Результаты — в консоль в формате Markdown-таблиц.

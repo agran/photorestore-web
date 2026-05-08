@@ -200,6 +200,7 @@ MP4/WebM → mediabunny demux → VideoSampleSink (декодированные 
 - [x] v0.7.2: Аудио passthrough (mediabunny), ETA, отмена, улучшения прогресса, переключатель качества (accurate/fast)
 - [x] v0.7.3: Отслеживание тела (YOLOv8-pose), стабильная ширина эффекта, hardening аудио, edit-again UX, прямой дроп видео, сериализация воркера
 - [~] v0.7.4: Просмотр масок после первого прохода + переиспользование данных детекции (keyframe replay, ускорение повторов). UI — скруббер видео~~, редактор ключевых кадров, превью во время обработки~~
+- [x] v0.7.x hardening (post-review): streaming tiling (P0 OOM fix), worker crash-recovery, blob-URL revoke audit (editor + video + Dropzone + PreviewCanvas), векторизация горячих циклов tensor↔canvas, pre-allocated detect canvas, blob-URL thumbnails вместо синхронного toDataURL, MediaRecorder timeslice, удалён двойной NMS, унификация file-валидации, discriminated union в pipelineRunner, токсичный TOAST_REMOVE_DELAY ~16 мин → 5 с, удаление мёртвого кода (см. [CODE_REVIEW.ru.md](./CODE_REVIEW.ru.md))
 - [ ] v0.7.5: [опционально] ArcFace re-ID для длинных окклюзий (дескриптор лица ONNX)
 
 ### Зависимости

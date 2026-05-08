@@ -157,6 +157,41 @@ WASM — в однопоточном режиме (медленнее, но хо
 
 Иконки отображаются в выпадающих списках моделей вместо обобщённой `⚡ GPU`.
 
+### Streaming tiling (`src/ml/utils/tiling.ts`)
+
+Большие изображения апскейлятся плиточно. Архитектура потоковая, не batch:
+
+```
+planTiles(W, H, opts)            ← возвращает только координаты (без canvas)
+    ↓
+for coord of coords {
+  tileCanvas = extractTile(src, coord)     ← одна плитка в памяти
+  infer(tileCanvas) → outputCanvas
+  merger.addTile(coord, outputCanvas)      ← инкрементальный косинус-блендинг
+  // tileCanvas / outputCanvas сразу dropped
+}
+    ↓
+merged = merger.finalize()
+```
+
+`TileMerger` хранит 5 Float32Array аккумуляторов размера `outW × outH` (RGBA + weight). Старые `splitTiles` / `mergeTiles` сохранены как обёртки backward-compat для unit-тестов.
+
+Это снижает пиковую память: раньше ВСЕ outputCanvas + аккумуляторы держались одновременно (массив из N плиток в JS heap + 5×outW×outH×4 байт). Теперь — только текущая плитка + аккумуляторы. Для 4K при scale=4 → ~2.6 ГБ (выживает при ≥4 ГБ ОЗУ); для 8K → близко к лимиту.
+
+Та же `planTiles` + `extractTile` используется в детекции лиц ([anonymize.ts](src/ml/pipelines/anonymize.ts)) — раньше там был свой `splitDetectionTiles` с тем же паттерном «все canvas сразу».
+
+### Crash-recovery inference worker (`src/ml/inferenceClient.ts`)
+
+Singleton inference-воркер слушает `error` / `messageerror` события. При падении (uncaught exception в воркере, OOM, kill браузером) кэш `worker`/`workerApi` сбрасывается → следующий вызов `getInferenceWorker()` поднимает свежий процесс. ONNX-сессии при этом теряются; вызывающие пайплайны должны иметь try/catch + сброс своего `sessionReady` флага (так уже сделано в `poseEstimate.estimatePoses`).
+
+### Per-track lifecycle в видео-пайплайне
+
+ByteTrack может переиспользовать track ID после wraparound счётчика. Чтобы старое состояние не «прилипало» к новому треку с тем же ID, каждый кадр после `tracker.update()` чистятся по `aliveTrackIds`:
+
+- `trackEmojis` — иначе старый эмодзи остаётся на новом лице
+- `lastBodyBoxes` — иначе старый pose-derived box используется для тела другого человека
+- `trackEffectWidths` — иначе stable kernel width переносится между треками
+
 ### Бенчмарк-инструмент (`src/dev/benchmark.ts`)
 
 В dev-режиме (`import.meta.env.DEV`) загружается бенчмарк, доступный через
