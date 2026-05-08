@@ -22,6 +22,14 @@ import {
 
 export type VideoAnonymizeQuality = 'fast' | 'accurate';
 
+// Tracker maxLost in frames. Without body tracking, 40 frames (~1.3 s @ 30fps)
+// is enough to bridge brief detector misses without "sticky" masks lingering
+// where a person already left. With body tracking, 300 frames (~10 s) gives
+// the pose-derived face position time to take over during long occlusions
+// (someone turning around, walking behind a foreground object, etc.).
+const MAX_LOST_FRAMES_NO_BODY = 40;
+const MAX_LOST_FRAMES_WITH_BODY = 300;
+
 export interface TrackMeta {
   trackId: number;
   firstFrame: number;
@@ -111,7 +119,7 @@ function applyEffect(
     }
     case 'emoji': {
       const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
-      applyEmoji(ctx, source, box, opts.emojis?.[idx] || opts.emoji, pad, 0, 'rect', cW, cH);
+      applyEmoji(ctx, source, box, opts.emojis?.[idx] || opts.emoji, pad, 0, opts.maskShape, cW, cH);
       break;
     }
   }
@@ -188,6 +196,15 @@ async function anonymizeVideoV2(
   processCanvas.height = cH;
   const processCtx = processCanvas.getContext('2d')!;
 
+  // Detection canvas is a separate buffer so the inference pipeline reads a
+  // pristine frame while we mutate processCanvas (mask draws). Reused across
+  // every keyframe — at 1080p30 in accurate mode this saves ~240 MB/s of
+  // canvas allocations vs. document.createElement('canvas') per keyframe.
+  const detectCanvas = document.createElement('canvas');
+  detectCanvas.width = cW;
+  detectCanvas.height = cH;
+  const detectCtx = detectCanvas.getContext('2d')!;
+
   // 2. Setup codec + encoder
   const h264Config: VideoEncoderConfig = {
     codec: 'avc1.420028',
@@ -261,7 +278,9 @@ async function anonymizeVideoV2(
   const videoSink = new VideoSampleSink(videoTrack);
   // When body tracking is enabled, keep tracks alive much longer so the
   // pose-derived face position can take over while the face is occluded.
-  const tracker = new FaceTracker({ maxLost: bodyTracking ? 300 : 40 });
+  const tracker = new FaceTracker({
+    maxLost: bodyTracking ? MAX_LOST_FRAMES_WITH_BODY : MAX_LOST_FRAMES_NO_BODY,
+  });
   let frameIndex = 0;
   const trackEmojis = new Map<number, string>();
   let nextDetectionFrame = 0;
@@ -271,8 +290,11 @@ async function anonymizeVideoV2(
   const minInterval = quality === 'accurate' ? 1 : 5;
   const maxInterval = quality === 'accurate' ? 1 : 60;
 
-  // Track metadata collection for mask review after first pass.
-  const trackMetaMap = new Map<number, { firstFrame: number; lastFrame: number; thumbnailUrl: string }>();
+  // Track metadata collection for mask review after first pass. Thumbnail
+  // canvas is held until finalize() — encoded to a blob URL there to avoid
+  // synchronous toDataURL on every new track (which can block the main
+  // thread for ~5–10 ms each on 1080p frames).
+  const trackMetaMap = new Map<number, { firstFrame: number; lastFrame: number; thumbCanvas: HTMLCanvasElement }>();
   const excludedSet = excludeTrackIds ?? new Set<number>();
 
   // Pre-computed keyframes from a previous pass — skip ONNX inference on replay.
@@ -282,7 +304,12 @@ async function anonymizeVideoV2(
   const keyframeDataList: KeyframeData[] = [];
 
   const sampleIterator = videoSink.samples();
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   let sampleResult = await sampleIterator.next();
+  if (signal?.aborted) {
+    if (!sampleResult.done) sampleResult.value.close();
+    throw new DOMException('Aborted', 'AbortError');
+  }
 
   // Body tracking: cache pose estimates and map trackId → pose index
   let cachedPoses: PoseEstimate[] | null = null;
@@ -353,15 +380,17 @@ async function anonymizeVideoV2(
         // Replay stored keyframe data from a previous pass to skip expensive
         // ONNX inference when re-processing with modified exclusion masks.
         const stored = keyframeLookup?.get(frameIndex);
-        let detectCanvas: HTMLCanvasElement | undefined;
+        // detectCanvas is the pre-allocated reusable buffer. We only redraw
+        // it from the current sample on real-detection passes; on stored
+        // (replay) passes we leave it untouched and skip thumbnail capture.
+        let detectCanvasFresh = false;
         if (stored) {
           detections = stored.detections.map((d) => ({ ...d }));
           posesResult = stored.poses;
         } else {
-          detectCanvas = document.createElement('canvas');
-          detectCanvas.width = cW;
-          detectCanvas.height = cH;
-          sample.draw(detectCanvas.getContext('2d')!, 0, 0, cW, cH);
+          detectCtx.clearRect(0, 0, cW, cH);
+          sample.draw(detectCtx, 0, 0, cW, cH);
+          detectCanvasFresh = true;
 
           const [dets, poses] = await Promise.all([
             detectFaces(detectCanvas, { modelId }),
@@ -407,16 +436,17 @@ async function anonymizeVideoV2(
 
         // Always call update() — even on empty detections, so framesSinceUpdate
         // increments and the body-tracking override can take over.
-        trackedFaces = tracker.update(detections, 0.5, cW, cH);
+        trackedFaces = tracker.update(detections, cW, cH);
 
-        // Collect track metadata for mask review
-        if (onTrackMeta) {
+        // Collect track metadata for mask review. Thumbnail capture only
+        // happens when we have a fresh detect frame — on replay passes
+        // (stored data) onTrackMeta is undefined anyway, so this is fine.
+        if (onTrackMeta && detectCanvasFresh) {
           for (const tf of trackedFaces) {
             const existing = trackMetaMap.get(tf.trackId);
             if (existing) {
               existing.lastFrame = frameIndex;
             } else {
-              // Capture face thumbnail from detection canvas
               const pad = 20;
               const tx = Math.max(0, Math.round(tf.x) - pad);
               const ty = Math.max(0, Math.round(tf.y) - pad);
@@ -425,11 +455,11 @@ async function anonymizeVideoV2(
               const thumbCanvas = document.createElement('canvas');
               thumbCanvas.width = tw;
               thumbCanvas.height = th;
-              if (detectCanvas) thumbCanvas.getContext('2d')!.drawImage(detectCanvas, tx, ty, tw, th, 0, 0, tw, th);
+              thumbCanvas.getContext('2d')!.drawImage(detectCanvas, tx, ty, tw, th, 0, 0, tw, th);
               trackMetaMap.set(tf.trackId, {
                 firstFrame: frameIndex,
                 lastFrame: frameIndex,
-                thumbnailUrl: thumbCanvas.toDataURL('image/jpeg', 0.7),
+                thumbCanvas,
               });
             }
           }
@@ -533,12 +563,17 @@ async function anonymizeVideoV2(
           }
           applyEffect(processCtx, frameCopy, faceBox, trackOpts, i, cW, cH, useScaleInvariant, stableEffectWidth);
         }
-        // GC body-box state for tracks that no longer exist
+        // GC per-track state for tracks that no longer exist. Without this,
+        // ByteTrack's reused IDs (after wraparound) would inherit stale
+        // emojis / body boxes / kernel widths from a previous track.
         for (const id of lastBodyBoxes.keys()) {
           if (!aliveTrackIds.has(id)) lastBodyBoxes.delete(id);
         }
         for (const id of trackEffectWidths.keys()) {
           if (!aliveTrackIds.has(id)) trackEffectWidths.delete(id);
+        }
+        for (const id of trackEmojis.keys()) {
+          if (!aliveTrackIds.has(id)) trackEmojis.delete(id);
         }
       }
 
@@ -629,24 +664,48 @@ async function anonymizeVideoV2(
       }
     }
 
+    // Surface collected metadata BEFORE finalize — if finalize throws (e.g.
+    // bad MP4 layout), the user still gets the masks-review UI populated and
+    // can re-process with exclusions instead of losing the entire run.
+    if (onKeyframeData && keyframeDataList.length > 0) {
+      onKeyframeData(keyframeDataList);
+    }
+    if (onTrackMeta) {
+      const entries = Array.from(trackMetaMap.entries());
+      entries.sort((a, b) => a[1].firstFrame - b[1].firstFrame);
+      // Encode thumbnails as JPEG blob URLs in parallel — async but doesn't
+      // block the encoder finalize step. Caller (videoAnonymizeStore) must
+      // revoke these URLs on reset/setFile/loadFile.
+      const metas = await Promise.all(
+        entries.map(
+          ([trackId, m]) =>
+            new Promise<TrackMeta>((resolve) => {
+              m.thumbCanvas.toBlob(
+                (blob) => {
+                  const thumbnailUrl = blob
+                    ? URL.createObjectURL(blob)
+                    : '';
+                  resolve({
+                    trackId,
+                    firstFrame: m.firstFrame,
+                    lastFrame: m.lastFrame,
+                    thumbnailUrl,
+                  });
+                },
+                'image/jpeg',
+                0.7,
+              );
+            }),
+        ),
+      );
+      onTrackMeta(metas);
+    }
+
     onProgress?.(98);
     await output.finalize();
     onProgress?.(99);
 
     buffer = output.target.buffer;
-
-    if (onKeyframeData && keyframeDataList.length > 0) {
-      onKeyframeData(keyframeDataList);
-    }
-
-    if (onTrackMeta) {
-      const metas: TrackMeta[] = [];
-      for (const [trackId, meta] of trackMetaMap) {
-        metas.push({ trackId, ...meta });
-      }
-      metas.sort((a, b) => a.firstFrame - b.firstFrame);
-      onTrackMeta(metas);
-    }
   } finally {
     // Ensure resources are released even if the pipeline fails mid-processing
     try { encoder.close(); } catch { /* already closed */ }
@@ -709,11 +768,15 @@ async function anonymizeVideoFallback(
   const outputBlobPromise = new Promise<Blob>((resolve) => {
     recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType.split(';')[0] }));
   });
-  recorder.start();
+  // 1-second timeslice — without it MediaRecorder buffers the entire video
+  // until stop(), so a 5-minute clip holds ~150 MB+ in memory before flushing.
+  recorder.start(1000);
 
   // When body tracking is enabled, keep tracks alive much longer so the
   // pose-derived face position can take over while the face is occluded.
-  const tracker = new FaceTracker({ maxLost: bodyTracking ? 300 : 40 });
+  const tracker = new FaceTracker({
+    maxLost: bodyTracking ? MAX_LOST_FRAMES_WITH_BODY : MAX_LOST_FRAMES_NO_BODY,
+  });
   let nextDetectionFrame = 0;
   let dInterval = quality === 'accurate' ? 1 : 30;
   const minInterval = quality === 'accurate' ? 1 : 5;
@@ -811,7 +874,7 @@ async function anonymizeVideoFallback(
       }
 
       // See V2: always update() so empty keyframes increment framesSinceUpdate.
-      trackedFaces = tracker.update(detections, 0.5, cW, cH);
+      trackedFaces = tracker.update(detections, cW, cH);
 
       if (runPose) {
         cachedPoses = posesResult;

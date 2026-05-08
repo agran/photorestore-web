@@ -36,7 +36,6 @@ interface VideoAnonymizeState {
   excludedTrackIds: Set<number>;
   keyframeData: KeyframeData[] | null;
 
-  setFile: (file: File, info: { duration: number; fps: number; width: number; height: number; frameCount: number }) => void;
   /** Load a video file, read its metadata, and transition to step='loaded'. */
   loadFile: (file: File) => Promise<void>;
   setStep: (step: VideoAnonymizeStep) => void;
@@ -103,31 +102,50 @@ const initialState = {
   keyframeData: null as KeyframeData[] | null,
 };
 
+function revokeThumbnails(metas: TrackMeta[]): void {
+  for (const m of metas) {
+    if (m.thumbnailUrl) URL.revokeObjectURL(m.thumbnailUrl);
+  }
+}
+
 export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => ({
   ...initialState,
-
-  setFile: (file, info) => {
-    const prev = get();
-    if (prev.videoUrl) URL.revokeObjectURL(prev.videoUrl);
-    if (prev.outputUrl) URL.revokeObjectURL(prev.outputUrl);
-    set({
-      step: 'loaded', file, videoUrl: URL.createObjectURL(file), ...info,
-      outputBlob: null, outputUrl: null, progress: 0, aborted: false, startTime: 0,
-      trackMetas: [], excludedTrackIds: new Set<number>(), keyframeData: null,
-    });
-  },
 
   loadFile: (file) => new Promise<void>((resolve, reject) => {
     const prev = get();
     if (prev.videoUrl) URL.revokeObjectURL(prev.videoUrl);
     if (prev.outputUrl) URL.revokeObjectURL(prev.outputUrl);
+    revokeThumbnails(prev.trackMetas);
 
     const url = URL.createObjectURL(file);
     const vid = document.createElement('video');
     vid.preload = 'metadata';
     vid.muted = true;
     vid.src = url;
+
+    // Hard timeout so a corrupt/unsupported video doesn't leave us with a
+    // detached <video> element forever consuming a blob URL.
+    const TIMEOUT_MS = 30_000;
+    let settled = false;
+    const cleanup = () => {
+      vid.onloadedmetadata = null;
+      vid.onerror = null;
+      vid.removeAttribute('src');
+      vid.load();
+      vid.remove();
+    };
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      URL.revokeObjectURL(url);
+      reject(new Error('Failed to load video metadata: timeout'));
+    }, TIMEOUT_MS);
+
     vid.onloadedmetadata = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       const fps = 30;
       set({
         step: 'loaded',
@@ -149,12 +167,15 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
         excludedTrackIds: new Set<number>(),
         keyframeData: null,
       });
-      vid.remove();
+      cleanup();
       resolve();
     };
     vid.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
       URL.revokeObjectURL(url);
-      vid.remove();
       reject(new Error('Failed to load video metadata'));
     };
   }),
@@ -180,11 +201,17 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
     set({ step: 'done', progress: 100, outputBlob, outputUrl, outputExt });
   },
 
-  editAgain: () => set({ step: 'loaded', progress: 0, aborted: false, trackMetas: [], excludedTrackIds: new Set<number>(), keyframeData: null }),
+  editAgain: () => {
+    revokeThumbnails(get().trackMetas);
+    set({ step: 'loaded', progress: 0, aborted: false, trackMetas: [], excludedTrackIds: new Set<number>(), keyframeData: null });
+  },
 
   showResult: () => set({ step: 'done', progress: 100 }),
 
   enterReview: (trackMetas) => {
+    // Replace the previous run's trackMetas — revoke their thumbnail URLs
+    // first or they'll leak when we drop the references.
+    revokeThumbnails(get().trackMetas);
     set({ step: 'review', trackMetas, excludedTrackIds: new Set<number>() });
   },
 
@@ -207,6 +234,7 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
     const s = get();
     if (s.videoUrl) URL.revokeObjectURL(s.videoUrl);
     if (s.outputUrl) URL.revokeObjectURL(s.outputUrl);
+    revokeThumbnails(s.trackMetas);
     set(initialState);
   },
 }));

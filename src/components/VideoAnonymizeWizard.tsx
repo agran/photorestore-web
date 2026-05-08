@@ -177,12 +177,15 @@ export default function VideoAnonymizeWizard({ onClose }: VideoAnonymizeWizardPr
 
       {/* Body */}
       <div className="flex flex-1 flex-col gap-1.5 overflow-hidden p-2 min-h-0">
-        {/* Video preview — output only on 'done', otherwise the source video */}
+        {/* Video preview — output only on 'done', otherwise the source video.
+            `key` forces a fresh DOM <video> when the source URL changes; without
+            it React reuses the element and the previous frame can flash before
+            the new src loads. */}
         <div className="relative flex-1 min-h-0 overflow-hidden rounded-lg bg-muted">
           {(step === 'done' || step === 'review') && outputUrl ? (
-            <video src={outputUrl} controls className="absolute inset-0 w-full h-full object-contain" />
+            <video key={outputUrl} src={outputUrl} controls className="absolute inset-0 w-full h-full object-contain" />
           ) : videoUrl ? (
-            <video src={videoUrl} controls className="absolute inset-0 w-full h-full object-contain" />
+            <video key={videoUrl} src={videoUrl} controls className="absolute inset-0 w-full h-full object-contain" />
           ) : null}
         </div>
 
