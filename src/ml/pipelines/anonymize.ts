@@ -274,7 +274,7 @@ export async function detectFaces(
     confidence: d.score,
   }));
   (faces as FaceBox[] & { backend?: string }).backend = backend;
-  return faces as FaceBox[] & { backend?: string };
+  return faces;
 }
 
 export async function anonymize(

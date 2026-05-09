@@ -298,7 +298,7 @@ async function benchFace(options: BenchOptions = {}): Promise<void> {
   console.error('[bench.face] Open a photo or video first.');
 }
 
-async function benchScrfdFp16(): Promise<void> {
+function benchScrfdFp16(): void {
   console.log('[bench.scrfdFp16] scrfd-10g is now permanently FP16 and scrfd-500m-fp16 was removed from registry.');
   console.log('No FP32 vs FP16 pairs left to benchmark. Use bench.face() to benchmark all face-detect models.');
 }
@@ -306,7 +306,7 @@ async function benchScrfdFp16(): Promise<void> {
 interface BenchApi {
   upscale: (options?: BenchOptions) => Promise<void>;
   face: (options?: BenchOptions) => Promise<void>;
-  scrfdFp16: () => Promise<void>;
+  scrfdFp16: () => void;
 }
 
 if (import.meta.env.DEV) {
