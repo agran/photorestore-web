@@ -124,7 +124,7 @@ function parseDetections(
 export async function detectFaces(
   canvas: HTMLCanvasElement,
   options: AnonymizeOptions = {}
-): Promise<FaceBox[]> {
+): Promise<FaceBox[] & { backend?: string }> {
   const { modelId = 'scrfd-10g', threshold = 0.5, onProgress } = options;
 
   const model = getModel(modelId);
@@ -146,7 +146,7 @@ export async function detectFaces(
   onProgress?.(25);
   console.log(`[Anonymize] Model: ${model.name}, Backend: ${backend.toUpperCase()}`);
 
-  const allFaces: FaceBox[] = [];
+  const allFaces: FaceBox[] & { backend?: string } = [];
 
   // Global pass: letterbox the whole image into the model input. This catches
   // large faces (portraits) that would otherwise span multiple 640×640 tiles
@@ -266,13 +266,15 @@ export async function detectFaces(
     h: f.height,
   }));
   const merged = nms(globalDets, 0.3);
-  return merged.map((d) => ({
+  const faces = merged.map((d) => ({
     x: d.x,
     y: d.y,
     width: d.w,
     height: d.h,
     confidence: d.score,
   }));
+  (faces as FaceBox[] & { backend?: string }).backend = backend;
+  return faces as FaceBox[] & { backend?: string };
 }
 
 export async function anonymize(

@@ -182,7 +182,7 @@ MP4/WebM → mediabunny demux → VideoSampleSink (декодированные 
 - **Дополнительные входы:** `runMulti` поддерживает `extraInputs` (Float32/Int32/Int64 массивы) — для моделей с несколькими входами (например, baked-in NMS thresholds)
 - **Логирование:** `ort.env.logLevel = 'error'` — подавляет per-call warnings (динамические формы вывода, fallback опов), логируются имена входов/выходов
 - **Уничтожение воркера:** `terminateInferenceWorker()` — пересоздаёт воркер между бенчмарк-моделями, чтобы избежать интерференции WebGPU-сессий
-- **По умолчанию SCRFD-10G** для анонимизации (был SCRFD-500M) — выше полнота детекции, ceil_mode=0 патч под WebGPU
+- **По умолчанию SCRFD-10G** для анонимизации (был SCRFD-500M) — выше полнота детекции, ceil_mode=0 патч под WebGPU, NCHW workaround, FP16 веса (~8 МБ)
 - **Авто-детекция crossOriginIsolated:** `setupRuntime()` проверяет `self.crossOriginIsolated` — если false (GitHub Pages, нет COOP/COEP), выставляет `numThreads=1`. Без этого многопоточный WASM ломает `initWasm()` навсегда.
 
 ### Переиспользование данных детекции (keyframe replay)
@@ -239,7 +239,7 @@ MP4/WebM → mediabunny demux → VideoSampleSink (декодированные 
 
 ### Модели (4 детектора — одномодельная детекция, интерактивная коррекция)
 
-- [x] SCRFD-10G-KPS (15.5 МБ, качество, WebGPU — ceil_mode=0 патч под ORT 1.25.1, модель по умолчанию)
+- [x] SCRFD-10G-KPS (~8.2 МБ FP16, качество, WebGPU — ceil_mode=0 патч + NCHW workaround + FP16 веса, модель по умолчанию)
 - [x] SCRFD-500M (2.4 МБ, лёгкая, WebGPU)
 - [x] YuNet 2023 (0.2 МБ, лёгкая, WebGPU)
 - [x] RetinaFace-MobileNet0.25 (1.7 МБ, профили/occlusion, WebGPU)

@@ -193,13 +193,16 @@ const MODELS: ModelMeta[] = [
   },
   {
     id: 'scrfd-10g',
-    name: 'SCRFD-10G-KPS',
+    name: 'SCRFD-10G-KPS (FP16)',
     // Patched: AveragePool ceil_mode=1 -> 0 in the 3 ResNet downsample
     // nodes. ORT 1.25.1 WebGPU EP doesn't implement Pool ops with ceil
     // mode; for 640x640 input all intermediate shapes are even, so the
     // patch is mathematically equivalent to the original.
-    url: modelUrl('scrfd_10g_gnkps-nochceil.onnx'),
-    sizeBytes: 16_273_449,
+    // preferNchw + basic graph optimization bypasses the JSEP bug that
+    // previously forced this model to WASM fallback (same fix as ESRGAN).
+    // Model weights are FP16 (converted via convert_fp16.py), IO stays FP32.
+    url: modelUrl('scrfd_10g_gnkps-nochceil-fp16.onnx'),
+    sizeBytes: 8_169_706,
     sha256: '',
     inputShape: [1, 3, 640, 640],
     license: 'Apache-2.0',
@@ -207,6 +210,7 @@ const MODELS: ModelMeta[] = [
     pipeline: 'anonymize',
     tags: ['face', 'detect', 'kps', 'quality'],
     speedClass: 'medium',
+    preferNchw: true,
   },
   {
     id: 'scrfd-500m',
@@ -221,6 +225,8 @@ const MODELS: ModelMeta[] = [
     tags: ['face', 'detect', 'lightweight'],
     speedClass: 'medium',
   },
+
+
   {
     id: 'yunet-2023',
     name: 'YuNet 2023',

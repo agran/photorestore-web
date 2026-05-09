@@ -100,7 +100,7 @@ These models were also converted to fp16 (`scripts/convert_fp16.py`) — interna
 
 ### SCRFD-10G ceil_mode patch
 
-ORT 1.25.1's WebGPU EP doesn't support Pool ops with `ceil_mode=1`. SCRFD-10G uses `AveragePool`/`MaxPool` with ceil_mode=1 in three ResNet downsample blocks. The patch (`scripts/patch_scrfd_ceil.py` via `onnx`) replaces ceil_mode with 0 — for 640×640 input, all intermediate sizes are even, so the patch is mathematically equivalent to the original. The model is loaded as `scrfd_10g_gnkps-nochceil.onnx`.
+ORT 1.25.1's WebGPU EP doesn't support Pool ops with `ceil_mode=1`. SCRFD-10G uses `AveragePool`/`MaxPool` with ceil_mode=1 in three ResNet downsample blocks. The patch (`scripts/patch_scrfd_ceil.py` via `onnx`) replaces ceil_mode with 0 — for 640×640 input, all intermediate sizes are even, so the patch is mathematically equivalent to the original. The model is loaded as `scrfd_10g_gnkps-nochceil-fp16.onnx` (weights FP16, IO FP32).
 
 ### BlazeFace removal
 

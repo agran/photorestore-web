@@ -17,6 +17,10 @@ TARGETS = [
     "nmkd-superscale.onnx",
     "nomos8ksc.onnx",
     "lsdir-dat.onnx",
+    "scrfd_10g_gnkps-nochceil.onnx",
+    "scrfd_500m.onnx",
+    "face_detection_yunet_2023mar.onnx",
+    "retinaface_mbn025.onnx",
 ]
 
 

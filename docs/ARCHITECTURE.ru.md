@@ -120,7 +120,7 @@ ORT 1.25.1 WebGPU EP не поддерживает Pool-операции с `cei
 три ResNet-блока даунсемплинга используют `AveragePool`/`MaxPool` с ceil_mode=1.
 Патч (`scripts/patch_scrfd_ceil.py` через `onnx`) заменяет ceil_mode на 0 —
 для входа 640×640 все промежуточные размеры чётные, поэтому patch математически
-эквивалентен оригиналу. Модель загружается как `scrfd_10g_gnkps-nochceil.onnx`.
+эквивалентен оригиналу. Модель загружается как `scrfd_10g_gnkps-nochceil-fp16.onnx` (веса FP16, вход/выход FP32).
 
 ### Удаление BlazeFace
 

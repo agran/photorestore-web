@@ -15,7 +15,7 @@ This document describes all ML models planned for PhotoRestore Web, their source
 | `cugan-up4x`              | Real-CUGAN Up×4          | Upscale      | MIT          | 2 MB   | 1×3×64×64    | WebGPU ✅       |
 | `cugan-up4x-denoise`      | Real-CUGAN Up×4 Denoise  | Upscale      | MIT          | 2 MB   | 1×3×64×64    | WebGPU ✅       |
 | `scrfd-500m`              | SCRFD-500M               | Hide Faces    | MIT          | 2.4 MB | 1×3×640×640  | WebGPU ✅       |
-| `scrfd-10g`               | SCRFD-10G-KPS            | Hide Faces    | Apache-2.0   | 15.5 MB | 1×3×640×640  | WASM (JSEP bug) |
+| `scrfd-10g`               | SCRFD-10G-KPS            | Hide Faces    | Apache-2.0   | 8.2 MB | 1×3×640×640  | WebGPU ✅ (NCHW, FP16 weights) |
 | `yunet-2023`              | YuNet 2023               | Hide Faces    | MIT          | 0.2 MB | 1×3×640×640  | WebGPU ✅       |
 | `retinaface-mbn025`       | RetinaFace-MobileNet0.25 | Hide Faces    | MIT          | 1.7 MB | 1×3×640×640  | WebGPU ✅       |
 | `blazeface`               | BlazeFace                | Hide Faces    | Apache-2.0   | 0.5 MB | 1×3×128×128  | WebGPU ✅       |
@@ -37,3 +37,4 @@ This document describes all ML models planned for PhotoRestore Web, their source
 - **NMKD Superscale** was converted from PyTorch `.pth` → ONNX with opset 17, then Constant nodes were moved to initializers to match the working `bukuroo` model structure.
 - **4xNomos8kSC** and **4xLSDIR-DAT** were already ONNX from `nesaorg` but had 0 initializers (all Constant) — converted to initializer-based format.
 - All models use 0 Constant nodes, matching the stable ONNX graph pattern.
+- **SCRFD-10G** previously fell back to WASM due to the same JSEP bug, but now runs on WebGPU via the `preferNchw: true` + `graphOptimizationLevel: 'basic'` workaround (same fix that enables ESRGAN models). Weights are FP16 (IO stays FP32), cutting model size in half (~8 MB vs ~16 MB) and improving inference speed by ~12%. Accuracy verified: IoU ≥ 0.998 vs FP32 baseline.

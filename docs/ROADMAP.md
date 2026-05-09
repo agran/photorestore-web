@@ -181,7 +181,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 - **Extra inputs:** `runMulti` supports `extraInputs` (Float32/Int32/Int64 arrays) — for models with multiple named inputs (e.g. baked-in NMS thresholds)
 - **Logging:** `ort.env.logLevel = 'error'` — silences per-call warnings (dynamic output shapes, op-to-EP fallbacks), logs input/output names
 - **Worker teardown:** `terminateInferenceWorker()` — recreates the worker between benchmark models to prevent WebGPU session interference
-- **Default SCRFD-10G** for anonymization (was SCRFD-500M) — higher detection recall, ceil_mode=0 WebGPU patch
+- **Default SCRFD-10G** for anonymization (was SCRFD-500M) — higher detection recall, ceil_mode=0 WebGPU patch, NCHW workaround, FP16 weights (~8 MB)
 - **crossOriginIsolated detection:** `setupRuntime()` checks `self.crossOriginIsolated` — if false (GitHub Pages, no COOP/COEP), falls back to `numThreads=1`. Without this, multi-threaded WASM permanently breaks `initWasm()`.
 
 ### Milestones
@@ -230,7 +230,7 @@ Replaces the planned ArcFace re-ID approach with a pragmatic body-pose fallback:
 
 ### Models (4 detectors — single-model, interactive correction)
 
-- [x] SCRFD-10G-KPS (15.5 MB, quality, WebGPU — ceil_mode=0 patch for ORT 1.25.1, now the default model)
+- [x] SCRFD-10G-KPS (~8.2 MB FP16, quality, WebGPU — ceil_mode=0 patch + NCHW workaround + FP16 weights, now the default model)
 - [x] SCRFD-500M (2.4 MB, lightweight, WebGPU)
 - [x] YuNet 2023 (0.2 MB, lightweight, WebGPU)
 - [x] RetinaFace-MobileNet0.25 (1.7 MB, profiles/occlusion, WebGPU)

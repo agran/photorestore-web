@@ -298,16 +298,23 @@ async function benchFace(options: BenchOptions = {}): Promise<void> {
   console.error('[bench.face] Open a photo or video first.');
 }
 
+async function benchScrfdFp16(): Promise<void> {
+  console.log('[bench.scrfdFp16] scrfd-10g is now permanently FP16 and scrfd-500m-fp16 was removed from registry.');
+  console.log('No FP32 vs FP16 pairs left to benchmark. Use bench.face() to benchmark all face-detect models.');
+}
+
 interface BenchApi {
   upscale: (options?: BenchOptions) => Promise<void>;
   face: (options?: BenchOptions) => Promise<void>;
+  scrfdFp16: () => Promise<void>;
 }
 
 if (import.meta.env.DEV) {
-  const api: BenchApi = { upscale: benchUpscale, face: benchFace };
+  const api: BenchApi = { upscale: benchUpscale, face: benchFace, scrfdFp16: benchScrfdFp16 };
   (window as unknown as { bench: BenchApi }).bench = api;
-  console.log('[bench] Ready. WebGPU-only. Commands:');
-  console.log('  bench.upscale()       — bench all upscale models on the loaded photo');
-  console.log('  bench.face()          — bench all face-detect models on photo or video frame');
-  console.log('  bench.upscale({ runs: 5 })  — more samples (default 2 + 1 warmup)');
+  console.log('[bench] Ready. Commands:');
+  console.log('  bench.upscale()              — bench all upscale models on the loaded photo');
+  console.log('  bench.face()                 — bench all face-detect models on photo or video frame');
+  console.log('  bench.scrfdFp16()            — shows that FP16 benchmark is retired');
+  console.log('  bench.upscale({ runs: 5 })   — more samples (default 2 + 1 warmup)');
 }
