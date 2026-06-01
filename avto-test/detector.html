@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Детектор автомобилей</title>
+    <script src="tf.min.js"></script>
+    <script src="coco-ssd.min.js"></script>
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: Arial, sans-serif;
+        background: #0f0f1a;
+        color: #e0e0e0;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 40px 16px;
+      }
+
+      h1 {
+        font-size: 1.8rem;
+        margin-bottom: 6px;
+        color: #00dc82;
+      }
+      .subtitle {
+        font-size: 0.9rem;
+        color: #888;
+        margin-bottom: 32px;
+      }
+
+      .upload-area {
+        width: 100%;
+        max-width: 640px;
+        border: 2px dashed #444;
+        border-radius: 16px;
+        padding: 40px 20px;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+        background: #1a1a2e;
+      }
+      .upload-area:hover,
+      .upload-area.drag-over {
+        border-color: #00dc82;
+        background: #1e2a20;
+      }
+      .upload-area p {
+        color: #888;
+        font-size: 0.95rem;
+        margin-top: 10px;
+      }
+      .upload-icon {
+        font-size: 3rem;
+      }
+      #fileInput {
+        display: none;
+      }
+
+      .btn {
+        display: inline-block;
+        margin-top: 18px;
+        padding: 12px 32px;
+        background: #00dc82;
+        color: #000;
+        border: none;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.2s;
+      }
+      .btn:hover {
+        background: #00b86a;
+      }
+      .btn:disabled {
+        background: #444;
+        color: #888;
+        cursor: not-allowed;
+      }
+
+      .canvas-wrap {
+        margin-top: 28px;
+        width: 100%;
+        max-width: 640px;
+        display: none;
+      }
+      .canvas-label {
+        font-size: 0.85rem;
+        color: #888;
+        margin-bottom: 6px;
+      }
+      canvas {
+        width: 100%;
+        border-radius: 12px;
+        border: 1px solid #333;
+        display: block;
+      }
+
+      #result-wrap {
+        margin-top: 28px;
+        width: 100%;
+        max-width: 640px;
+        display: none;
+      }
+      .result-label-title {
+        font-size: 0.85rem;
+        color: #00dc82;
+        margin-bottom: 6px;
+      }
+      #resultCanvas {
+        width: 100%;
+        border-radius: 12px;
+        border: 2px solid #00dc82;
+        display: block;
+      }
+
+      #status {
+        margin-top: 14px;
+        font-size: 0.9rem;
+        color: #aaa;
+        min-height: 22px;
+        text-align: center;
+      }
+
+      #progress-wrap {
+        width: 100%;
+        max-width: 640px;
+        margin-top: 12px;
+        display: none;
+      }
+      #progress-bar-bg {
+        width: 100%;
+        height: 8px;
+        background: #2a2a3e;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      #progress-bar-fill {
+        height: 100%;
+        width: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent 0%,
+          #00dc82 30%,
+          #00ff99 50%,
+          #00dc82 70%,
+          transparent 100%
+        );
+        background-size: 200% 100%;
+        border-radius: 8px;
+        animation: shimmer 1.4s infinite linear;
+      }
+      #progress-bar-fill.done {
+        animation: none;
+        background: #00dc82;
+      }
+      @keyframes shimmer {
+        from {
+          background-position: 200% 0;
+        }
+        to {
+          background-position: -200% 0;
+        }
+      }
+      #progress-text {
+        text-align: center;
+        font-size: 0.85rem;
+        color: #00dc82;
+        margin-top: 6px;
+        font-weight: bold;
+      }
+
+      .spinner {
+        display: none;
+        width: 36px;
+        height: 36px;
+        border: 4px solid #333;
+        border-top-color: #00dc82;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 16px auto 0;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🚗 Детектор автомобилей</h1>
+    <p class="subtitle">COCO-SSD (TensorFlow.js) — работает прямо в браузере</p>
+
+    <div
+      class="upload-area"
+      id="dropZone"
+      onclick="document.getElementById('fileInput').click()"
+    >
+      <div class="upload-icon">📷</div>
+      <p>Нажми или перетащи фото сюда</p>
+      <p style="font-size: 0.8rem; margin-top: 4px">JPG, PNG, WEBP</p>
+      <input type="file" id="fileInput" accept="image/*" />
+    </div>
+
+    <button class="btn" id="detectBtn" disabled onclick="detect()">
+      Распознать
+    </button>
+
+    <div class="canvas-wrap" id="previewWrap">
+      <div class="canvas-label">Исходное фото:</div>
+      <canvas id="previewCanvas"></canvas>
+    </div>
+
+    <div class="spinner" id="spinner"></div>
+    <div id="status"></div>
+
+    <div id="progress-wrap">
+      <div id="progress-bar-bg"><div id="progress-bar-fill"></div></div>
+      <div id="progress-text">0%</div>
+    </div>
+
+    <div id="result-wrap">
+      <div class="result-label-title">Результат детекции:</div>
+      <canvas id="resultCanvas"></canvas>
+    </div>
+
+    <script>
+      // Классы транспорта из COCO
+      const VEHICLE_CLASSES = {
+        car: "Авто",
+        truck: "Грузовик",
+        bus: "Автобус",
+        motorcycle: "Мотоцикл",
+      };
+
+      const fileInput = document.getElementById("fileInput");
+      const dropZone = document.getElementById("dropZone");
+      const detectBtn = document.getElementById("detectBtn");
+      const spinner = document.getElementById("spinner");
+      const statusEl = document.getElementById("status");
+      const previewWrap = document.getElementById("previewWrap");
+      const previewCanvas = document.getElementById("previewCanvas");
+      const resultWrap = document.getElementById("result-wrap");
+      const resultCanvas = document.getElementById("resultCanvas");
+
+      let selectedFile = null;
+      let model = null;
+
+      const progressWrap = document.getElementById("progress-wrap");
+      const progressFill = document.getElementById("progress-bar-fill");
+      const progressText = document.getElementById("progress-text");
+
+      // --- Отслеживаем загрузку через XHR + fetch ---
+      let loadedBytes = 0;
+
+      function formatMb(b) {
+        return (b / 1048576).toFixed(1);
+      }
+      function setPhase(phase, mb) {
+        if (phase === "download") {
+          progressText.textContent = `⬇️ Скачивание: ${formatMb(mb)} МБ`;
+        } else if (phase === "init") {
+          progressText.textContent = "⚙️ Инициализация модели...";
+        }
+      }
+
+      // Перехват XMLHttpRequest (TF.js грузит веса через XHR)
+      const _origXHR = window.XMLHttpRequest;
+      window.XMLHttpRequest = function () {
+        const xhr = new _origXHR();
+        xhr.addEventListener("progress", (e) => {
+          if (e.lengthComputable) {
+            loadedBytes += e.loaded - (xhr._prev || 0);
+            xhr._prev = e.loaded;
+          } else {
+            loadedBytes += e.loaded - (xhr._prev || 0);
+            xhr._prev = e.loaded;
+          }
+          setPhase("download", loadedBytes);
+        });
+        return xhr;
+      };
+      window.XMLHttpRequest.prototype = _origXHR.prototype;
+
+      // Перехват fetch (JSON манифесты модели)
+      const _origFetch = window.fetch;
+      window.fetch = async function (...args) {
+        const response = await _origFetch(...args);
+        if (!response.body) return response;
+
+        // Перехватываем все запросы пока идёт загрузка модели
+        const reader = response.body.getReader();
+        const chunks = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loadedBytes += value.byteLength;
+          setPhase("download", loadedBytes);
+        }
+        return new Response(new Blob(chunks), {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        });
+      };
+
+      // Загружаем модель при старте страницы
+      statusEl.textContent = "⏳ Загрузка модели...";
+      progressWrap.style.display = "block";
+      setPhase("download", 0);
+
+      cocoSsd
+        .load()
+        .then((m) => {
+          model = m;
+          window.fetch = _origFetch;
+          window.XMLHttpRequest = _origXHR;
+          progressFill.classList.add("done");
+          const totalMb = formatMb(loadedBytes);
+          progressText.textContent =
+            loadedBytes > 0
+              ? `✅ Загружено ${totalMb} МБ`
+              : `✅ Загружено из кэша`;
+          setTimeout(() => {
+            progressWrap.style.display = "none";
+          }, 1200);
+          statusEl.textContent = "✅ Модель загружена — выбери фото";
+        })
+        .catch(() => {
+          progressWrap.style.display = "none";
+          statusEl.textContent =
+            "❌ Не удалось загрузить модель (нужен интернет)";
+        });
+
+      // Drag & drop
+      dropZone.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        dropZone.classList.add("drag-over");
+      });
+      dropZone.addEventListener("dragleave", () =>
+        dropZone.classList.remove("drag-over"),
+      );
+      dropZone.addEventListener("drop", (e) => {
+        e.preventDefault();
+        dropZone.classList.remove("drag-over");
+        if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+      });
+      fileInput.addEventListener("change", () => {
+        if (fileInput.files[0]) loadFile(fileInput.files[0]);
+      });
+
+      function loadFile(file) {
+        selectedFile = file;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            // Рисуем превью
+            previewCanvas.width = img.naturalWidth;
+            previewCanvas.height = img.naturalHeight;
+            previewCanvas.getContext("2d").drawImage(img, 0, 0);
+            previewWrap.style.display = "block";
+
+            resultWrap.style.display = "none";
+            statusEl.textContent = model
+              ? "Нажми «Распознать»"
+              : "⏳ Подожди — модель загружается...";
+            if (model) detectBtn.disabled = false;
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+
+      async function detect() {
+        if (!selectedFile || !model) return;
+
+        detectBtn.disabled = true;
+        spinner.style.display = "block";
+        statusEl.textContent = "Обработка...";
+        resultWrap.style.display = "none";
+
+        // Берём изображение с превью-canvas
+        const predictions = await model.detect(previewCanvas);
+
+        // Фильтруем только транспорт
+        const vehicles = predictions.filter((p) => VEHICLE_CLASSES[p.class]);
+
+        // Копируем картинку на result canvas
+        resultCanvas.width = previewCanvas.width;
+        resultCanvas.height = previewCanvas.height;
+        const ctx = resultCanvas.getContext("2d");
+        ctx.drawImage(previewCanvas, 0, 0);
+
+        // Масштаб шрифта — ~2.5% от ширины, но не меньше 14px
+        const fontSize = Math.max(14, Math.round(previewCanvas.width * 0.025));
+        ctx.font = `bold ${fontSize}px Arial`;
+
+        vehicles.forEach((pred) => {
+          const [x, y, w, h] = pred.bbox;
+          const label = `${VEHICLE_CLASSES[pred.class]} ${Math.round(pred.score * 100)}%`;
+          const lineW = Math.max(2, Math.round(previewCanvas.width * 0.004));
+
+          // Рамка
+          ctx.strokeStyle = "#00dc82";
+          ctx.lineWidth = lineW;
+          ctx.strokeRect(x, y, w, h);
+
+          // Фон подписи
+          const textW = ctx.measureText(label).width;
+          const padX = 6,
+            padY = 4;
+          const labelH = fontSize + padY * 2;
+          const labelY = y > labelH ? y - labelH : y + lineW;
+          ctx.fillStyle = "#00dc82";
+          ctx.fillRect(x, labelY, textW + padX * 2, labelH);
+
+          // Текст
+          ctx.fillStyle = "#000000";
+          ctx.fillText(label, x + padX, labelY + fontSize);
+        });
+
+        resultWrap.style.display = "block";
+        statusEl.textContent =
+          vehicles.length > 0
+            ? `✅ Найдено транспортных средств: ${vehicles.length}`
+            : "⚠️ Транспортные средства не обнаружены";
+
+        spinner.style.display = "none";
+        detectBtn.disabled = false;
+      }
+    </script>
+  </body>
+</html>
