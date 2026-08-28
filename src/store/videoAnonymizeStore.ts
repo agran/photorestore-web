@@ -1,4 +1,4 @@
-import type { AnonymizeEffect, MaskShape } from '@/ml/utils/anonymizeEffects';
+import type { AnonymizeEffect, AnonymizeMode, MaskShape } from '@/ml/utils/anonymizeEffects';
 import type { TrackMeta, KeyframeData } from '@/ml/pipelines/anonymizeVideo';
 import { create } from 'zustand';
 
@@ -15,6 +15,7 @@ interface VideoAnonymizeState {
   height: number;
   frameCount: number;
   effect: AnonymizeEffect;
+  mode: AnonymizeMode;
   blurRadius: number;
   pixelateSize: number;
   solidColor: string;
@@ -40,6 +41,7 @@ interface VideoAnonymizeState {
   loadFile: (file: File) => Promise<void>;
   setStep: (step: VideoAnonymizeStep) => void;
   setEffect: (effect: AnonymizeEffect) => void;
+  setMode: (mode: AnonymizeMode) => void;
   setBlurRadius: (r: number) => void;
   setPixelateSize: (s: number) => void;
   setSolidColor: (c: string) => void;
@@ -80,6 +82,7 @@ const initialState = {
   height: 0,
   frameCount: 0,
   effect: 'pixelate' as AnonymizeEffect,
+  mode: 'faces' as AnonymizeMode,
   blurRadius: 4,
   pixelateSize: 10,
   solidColor: '#000000',
@@ -111,76 +114,78 @@ function revokeThumbnails(metas: TrackMeta[]): void {
 export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => ({
   ...initialState,
 
-  loadFile: (file) => new Promise<void>((resolve, reject) => {
-    const prev = get();
-    if (prev.videoUrl) URL.revokeObjectURL(prev.videoUrl);
-    if (prev.outputUrl) URL.revokeObjectURL(prev.outputUrl);
-    revokeThumbnails(prev.trackMetas);
+  loadFile: (file) =>
+    new Promise<void>((resolve, reject) => {
+      const prev = get();
+      if (prev.videoUrl) URL.revokeObjectURL(prev.videoUrl);
+      if (prev.outputUrl) URL.revokeObjectURL(prev.outputUrl);
+      revokeThumbnails(prev.trackMetas);
 
-    const url = URL.createObjectURL(file);
-    const vid = document.createElement('video');
-    vid.preload = 'metadata';
-    vid.muted = true;
-    vid.src = url;
+      const url = URL.createObjectURL(file);
+      const vid = document.createElement('video');
+      vid.preload = 'metadata';
+      vid.muted = true;
+      vid.src = url;
 
-    // Hard timeout so a corrupt/unsupported video doesn't leave us with a
-    // detached <video> element forever consuming a blob URL.
-    const TIMEOUT_MS = 30_000;
-    let settled = false;
-    const cleanup = () => {
-      vid.onloadedmetadata = null;
-      vid.onerror = null;
-      vid.removeAttribute('src');
-      vid.load();
-      vid.remove();
-    };
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      URL.revokeObjectURL(url);
-      reject(new Error('Failed to load video metadata: timeout'));
-    }, TIMEOUT_MS);
+      // Hard timeout so a corrupt/unsupported video doesn't leave us with a
+      // detached <video> element forever consuming a blob URL.
+      const TIMEOUT_MS = 30_000;
+      let settled = false;
+      const cleanup = () => {
+        vid.onloadedmetadata = null;
+        vid.onerror = null;
+        vid.removeAttribute('src');
+        vid.load();
+        vid.remove();
+      };
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load video metadata: timeout'));
+      }, TIMEOUT_MS);
 
-    vid.onloadedmetadata = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const fps = 30;
-      set({
-        step: 'loaded',
-        file,
-        videoUrl: url,
-        duration: vid.duration,
-        fps,
-        width: vid.videoWidth,
-        height: vid.videoHeight,
-        frameCount: Math.round(vid.duration * fps),
-        // Replacing the source video — drop any previous result so settings
-        // are preserved but the user starts fresh.
-        outputBlob: null,
-        outputUrl: null,
-        progress: 0,
-        aborted: false,
-        startTime: 0,
-        trackMetas: [],
-        excludedTrackIds: new Set<number>(),
-        keyframeData: null,
-      });
-      cleanup();
-      resolve();
-    };
-    vid.onerror = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      cleanup();
-      URL.revokeObjectURL(url);
-      reject(new Error('Failed to load video metadata'));
-    };
-  }),
+      vid.onloadedmetadata = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        const fps = 30;
+        set({
+          step: 'loaded',
+          file,
+          videoUrl: url,
+          duration: vid.duration,
+          fps,
+          width: vid.videoWidth,
+          height: vid.videoHeight,
+          frameCount: Math.round(vid.duration * fps),
+          // Replacing the source video — drop any previous result so settings
+          // are preserved but the user starts fresh.
+          outputBlob: null,
+          outputUrl: null,
+          progress: 0,
+          aborted: false,
+          startTime: 0,
+          trackMetas: [],
+          excludedTrackIds: new Set<number>(),
+          keyframeData: null,
+        });
+        cleanup();
+        resolve();
+      };
+      vid.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        cleanup();
+        URL.revokeObjectURL(url);
+        reject(new Error('Failed to load video metadata'));
+      };
+    }),
   setStep: (step) => set({ step }),
   setEffect: (effect) => set({ effect }),
+  setMode: (mode) => set({ mode }),
   setBlurRadius: (blurRadius) => set({ blurRadius }),
   setPixelateSize: (pixelateSize) => set({ pixelateSize }),
   setSolidColor: (solidColor) => set({ solidColor }),
@@ -203,7 +208,14 @@ export const useVideoAnonymizeStore = create<VideoAnonymizeState>((set, get) => 
 
   editAgain: () => {
     revokeThumbnails(get().trackMetas);
-    set({ step: 'loaded', progress: 0, aborted: false, trackMetas: [], excludedTrackIds: new Set<number>(), keyframeData: null });
+    set({
+      step: 'loaded',
+      progress: 0,
+      aborted: false,
+      trackMetas: [],
+      excludedTrackIds: new Set<number>(),
+      keyframeData: null,
+    });
   },
 
   showResult: () => set({ step: 'done', progress: 100 }),

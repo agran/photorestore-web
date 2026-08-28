@@ -3,6 +3,14 @@ import type { FaceBox } from './faceDetect';
 export type AnonymizeEffect = 'blur' | 'pixelate' | 'solid' | 'emoji' | 'sticker';
 export type MaskShape = 'rect' | 'ellipse';
 
+/**
+ * 'faces' (default): run face detection and apply the effect only to faces.
+ * 'full': skip detection entirely and apply the effect to the whole frame —
+ * used for blurring / pixelating an entire photo or video without finding
+ * faces first.
+ */
+export type AnonymizeMode = 'faces' | 'full';
+
 export interface AnonymizeEffectOptions {
   effect: AnonymizeEffect;
   blurRadius?: number;
@@ -27,7 +35,9 @@ const DEFAULT_OPTIONS: Required<AnonymizeEffectOptions> = {
   emojis: [],
 };
 
-export function resolveEffectOptions(opts: AnonymizeEffectOptions): Required<AnonymizeEffectOptions> {
+export function resolveEffectOptions(
+  opts: AnonymizeEffectOptions
+): Required<AnonymizeEffectOptions> {
   return { ...DEFAULT_OPTIONS, ...opts };
 }
 
@@ -51,11 +61,7 @@ export function scaleKernel(userValue: number, bboxWidth: number): number {
  * face=500 → ×5
  * face=2000 → ×20
  */
-export function scaleEffectStrength(
-  userValue: number,
-  bboxWidth: number,
-  minValue = 1,
-): number {
+export function scaleEffectStrength(userValue: number, bboxWidth: number, minValue = 1): number {
   const factor = Math.max(1, bboxWidth / 100);
   return Math.max(minValue, Math.round(userValue * factor));
 }
@@ -112,7 +118,12 @@ function applyClip(ctx: CanvasRenderingContext2D, box: FaceBox, shape: MaskShape
   ctx.clip();
 }
 
-function createFeatherMask(w: number, h: number, feather: number, shape: MaskShape): { mask: HTMLCanvasElement; border: number } {
+function createFeatherMask(
+  w: number,
+  h: number,
+  feather: number,
+  shape: MaskShape
+): { mask: HTMLCanvasElement; border: number } {
   const border = feather > 0 ? Math.ceil(feather * 3) : 0;
   const mw = w + border * 2;
   const mh = h + border * 2;
@@ -126,7 +137,13 @@ function createFeatherMask(w: number, h: number, feather: number, shape: MaskSha
   }
 
   const f = Math.max(0, Math.min(feather, w / 2 - 1, h / 2 - 1));
-  const eroded: FaceBox = { x: border + f, y: border + f, width: w - f * 2, height: h - f * 2, confidence: 0 };
+  const eroded: FaceBox = {
+    x: border + f,
+    y: border + f,
+    width: w - f * 2,
+    height: h - f * 2,
+    confidence: 0,
+  };
   maskCtx.filter = `blur(${f}px)`;
   maskCtx.fillStyle = 'white';
   drawMaskShape(maskCtx, eroded, shape);
@@ -135,14 +152,36 @@ function createFeatherMask(w: number, h: number, feather: number, shape: MaskSha
   return { mask, border };
 }
 
-function getFaceRegion(
+/**
+ * Draws `source` into `ctx` at (dx, dy) with an extra `margin`-wide ring of
+ * edge-clamped pixels around it. Without this, blur filters would sample
+ * transparent pixels beyond the content and fade the picture near the border.
+ */
+function drawWithEdgePadding(
+  ctx: CanvasRenderingContext2D,
   source: HTMLCanvasElement,
-  box: FaceBox
-): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
-  const region = createCanvas(box.width, box.height);
-  const ctx = region.getContext('2d')!;
-  ctx.drawImage(source, box.x, box.y, box.width, box.height, 0, 0, box.width, box.height);
-  return { canvas: region, ctx };
+  sx: number,
+  sy: number,
+  sw: number,
+  sh: number,
+  dx: number,
+  dy: number,
+  margin: number
+) {
+  if (margin <= 0) {
+    ctx.drawImage(source, sx, sy, sw, sh, dx, dy, sw, sh);
+    return;
+  }
+  // Center + edge-stretched strips and corners (edge clamp).
+  ctx.drawImage(source, sx, sy, sw, sh, dx, dy, sw, sh);
+  ctx.drawImage(source, sx, sy, sw, 1, dx, dy - margin, sw, margin);
+  ctx.drawImage(source, sx, sy + sh - 1, sw, 1, dx, dy + sh, sw, margin);
+  ctx.drawImage(source, sx, sy, 1, sh, dx - margin, dy, margin, sh);
+  ctx.drawImage(source, sx + sw - 1, sy, 1, sh, dx + sw, dy, margin, sh);
+  ctx.drawImage(source, sx, sy, 1, 1, dx - margin, dy - margin, margin, margin);
+  ctx.drawImage(source, sx + sw - 1, sy, 1, 1, dx + sw, dy - margin, margin, margin);
+  ctx.drawImage(source, sx, sy + sh - 1, 1, 1, dx - margin, dy + sh, margin, margin);
+  ctx.drawImage(source, sx + sw - 1, sy + sh - 1, 1, 1, dx + sw, dy + sh, margin, margin);
 }
 
 export function applyBlur(
@@ -157,7 +196,26 @@ export function applyBlur(
   canvasH: number
 ) {
   const expanded = expandBox(box, padding, canvasW, canvasH);
-  const { canvas: region, ctx: regionCtx } = getFaceRegion(source, expanded);
+
+  // The blur kernel samples outside the region edges — without a padded,
+  // edge-clamped margin those samples land on transparent pixels, so the
+  // region border fades back toward the original. Most visible in
+  // whole-frame mode, where the frame edges stay unblurred. Work on a
+  // canvas padded by ~3×radius and crop the center back when compositing.
+  const margin = blurRadius > 0 ? Math.ceil(blurRadius * 3) : 0;
+  const region = createCanvas(expanded.width + margin * 2, expanded.height + margin * 2);
+  const regionCtx = region.getContext('2d')!;
+  drawWithEdgePadding(
+    regionCtx,
+    source,
+    expanded.x,
+    expanded.y,
+    expanded.width,
+    expanded.height,
+    margin,
+    margin,
+    margin
+  );
 
   if (blurRadius > 0) {
     regionCtx.filter = `blur(${blurRadius}px)`;
@@ -169,14 +227,34 @@ export function applyBlur(
     const { mask, border } = createFeatherMask(expanded.width, expanded.height, feather, shape);
     const tmp = createCanvas(mask.width, mask.height);
     const tmpCtx = tmp.getContext('2d')!;
-    tmpCtx.drawImage(region, border, border);
+    tmpCtx.drawImage(
+      region,
+      margin,
+      margin,
+      expanded.width,
+      expanded.height,
+      border,
+      border,
+      expanded.width,
+      expanded.height
+    );
     tmpCtx.globalCompositeOperation = 'destination-in';
     tmpCtx.drawImage(mask, 0, 0);
     destCtx.drawImage(tmp, expanded.x - border, expanded.y - border);
   } else {
     destCtx.save();
     applyClip(destCtx, expanded, shape);
-    destCtx.drawImage(region, expanded.x, expanded.y);
+    destCtx.drawImage(
+      region,
+      margin,
+      margin,
+      expanded.width,
+      expanded.height,
+      expanded.x,
+      expanded.y,
+      expanded.width,
+      expanded.height
+    );
     destCtx.restore();
   }
 }
@@ -201,7 +279,17 @@ export function applyPixelate(
   const small = createCanvas(smallW, smallH);
   const smallCtx = small.getContext('2d')!;
   smallCtx.imageSmoothingEnabled = true;
-  smallCtx.drawImage(source, expanded.x, expanded.y, expanded.width, expanded.height, 0, 0, smallW, smallH);
+  smallCtx.drawImage(
+    source,
+    expanded.x,
+    expanded.y,
+    expanded.width,
+    expanded.height,
+    0,
+    0,
+    smallW,
+    smallH
+  );
 
   if (feather > 0) {
     const { mask, border } = createFeatherMask(expanded.width, expanded.height, feather, shape);
@@ -216,7 +304,17 @@ export function applyPixelate(
     destCtx.save();
     applyClip(destCtx, expanded, shape);
     destCtx.imageSmoothingEnabled = false;
-    destCtx.drawImage(small, 0, 0, smallW, smallH, expanded.x, expanded.y, expanded.width, expanded.height);
+    destCtx.drawImage(
+      small,
+      0,
+      0,
+      smallW,
+      smallH,
+      expanded.x,
+      expanded.y,
+      expanded.width,
+      expanded.height
+    );
     destCtx.restore();
   }
 }

@@ -23,6 +23,7 @@ import {
   scaleKernel,
   scaleEffectStrength,
   type AnonymizeEffectOptions,
+  type AnonymizeMode,
 } from '@/ml/utils/anonymizeEffects';
 
 export type { AnonymizeEffectOptions } from '@/ml/utils/anonymizeEffects';
@@ -30,6 +31,11 @@ export type { AnonymizeEffectOptions } from '@/ml/utils/anonymizeEffects';
 export interface AnonymizeOptions {
   modelId?: string;
   threshold?: number;
+  /**
+   * 'faces' (default): detect faces and apply the effect to them.
+   * 'full': skip detection and apply the effect to the whole canvas.
+   */
+  mode?: AnonymizeMode;
   effectOptions?: AnonymizeEffectOptions;
   onProgress?: (percent: number) => void;
   /** Pre-detected faces — skip detection when provided */
@@ -58,7 +64,7 @@ function padCanvas(canvas: HTMLCanvasElement, targetW: number, targetH: number):
 function fitCanvasLetterbox(
   source: HTMLCanvasElement,
   targetW: number,
-  targetH: number,
+  targetH: number
 ): { canvas: HTMLCanvasElement; scale: number; offsetX: number; offsetY: number } {
   const scale = Math.min(targetW / source.width, targetH / source.height);
   const drawW = Math.round(source.width * scale);
@@ -84,9 +90,12 @@ function prepareTensorData(
   inputW: number,
   inputH: number
 ): Float32Array {
-  if (modelId.startsWith('scrfd')) return prepareScrfdInput(canvas, inputW, inputH).data as Float32Array;
-  if (modelId.startsWith('yunet')) return prepareRawInput(canvas, inputW, inputH).data as Float32Array;
-  if (modelId.startsWith('retinaface')) return prepareRetinaFaceInput(canvas, inputW, inputH).data as Float32Array;
+  if (modelId.startsWith('scrfd'))
+    return prepareScrfdInput(canvas, inputW, inputH).data as Float32Array;
+  if (modelId.startsWith('yunet'))
+    return prepareRawInput(canvas, inputW, inputH).data as Float32Array;
+  if (modelId.startsWith('retinaface'))
+    return prepareRetinaFaceInput(canvas, inputW, inputH).data as Float32Array;
   return prepareRawInput(canvas, inputW, inputH).data as Float32Array;
 }
 
@@ -102,17 +111,35 @@ function parseDetections(
 ): FaceBox[] {
   if (modelId.startsWith('scrfd')) {
     return parseScrfdDetections(
-      outputs, outputNames, inputW, inputH, canvasW, canvasH, threshold
+      outputs,
+      outputNames,
+      inputW,
+      inputH,
+      canvasW,
+      canvasH,
+      threshold
     ).map((d) => ({ x: d.x, y: d.y, width: d.w, height: d.h, confidence: d.score }));
   }
   if (modelId.startsWith('yunet')) {
     return parseYunetDetections(
-      outputs, outputNames, inputW, inputH, canvasW, canvasH, threshold
+      outputs,
+      outputNames,
+      inputW,
+      inputH,
+      canvasW,
+      canvasH,
+      threshold
     ).map((d) => ({ x: d.x, y: d.y, width: d.w, height: d.h, confidence: d.score }));
   }
   if (modelId.startsWith('retinaface')) {
     return parseRetinaFaceDetections(
-      outputs, outputNames, inputW, inputH, canvasW, canvasH, threshold
+      outputs,
+      outputNames,
+      inputW,
+      inputH,
+      canvasW,
+      canvasH,
+      threshold
     ).map((d) => ({ x: d.x, y: d.y, width: d.w, height: d.h, confidence: d.score }));
   }
   return [];
@@ -167,8 +194,14 @@ export async function detectFaces(
     }
 
     const globalFaces = parseDetections(
-      modelId, outputs, outputNames,
-      inputW, inputH, inputW, inputH, threshold
+      modelId,
+      outputs,
+      outputNames,
+      inputW,
+      inputH,
+      inputW,
+      inputH,
+      threshold
     );
 
     for (const f of globalFaces) {
@@ -208,7 +241,7 @@ export async function detectFaces(
     const outputRecord = await api.runMulti(
       Comlink.transfer(tensorData, [tensorData.buffer]),
       [1, 3, inputH, inputW],
-      model.url,
+      model.url
     );
 
     const outputNames = Object.keys(outputRecord);
@@ -222,14 +255,23 @@ export async function detectFaces(
       console.group(`[Anonymize] Model: ${model.name}, Tile 0 (${coord.srcW}×${coord.srcH})`);
       for (const [name, { data, dims }] of Object.entries(outputRecord)) {
         const samples = Array.from(data.slice(0, Math.min(8, data.length)));
-        console.log(`  ${name} [${dims.join(',')}] samples:`, samples.map((v) => v.toFixed(4)));
+        console.log(
+          `  ${name} [${dims.join(',')}] samples:`,
+          samples.map((v) => v.toFixed(4))
+        );
       }
       console.groupEnd();
     }
 
     const tileFaces = parseDetections(
-      modelId, outputs, outputNames,
-      inputW, inputH, inputW, inputH, threshold,
+      modelId,
+      outputs,
+      outputNames,
+      inputW,
+      inputH,
+      inputW,
+      inputH,
+      threshold
     );
 
     // Filter detections outside tile content area and clamp
@@ -282,9 +324,14 @@ export async function anonymize(
   options: AnonymizeOptions = {}
 ): Promise<AnonymizeResult> {
   const start = performance.now();
-  const { onProgress, effectOptions, preDetectedFaces } = options;
+  const { onProgress, effectOptions, preDetectedFaces, mode = 'faces' } = options;
 
-  const faces = preDetectedFaces ?? (await detectFaces(canvas, options));
+  // Whole-frame mode: skip detection entirely and cover the full canvas with
+  // a single synthetic region. Raw slider values, no per-face scaling.
+  const full = mode === 'full';
+  const faces: FaceBox[] = full
+    ? [{ x: 0, y: 0, width: canvas.width, height: canvas.height, confidence: 1 }]
+    : (preDetectedFaces ?? (await detectFaces(canvas, options)));
   onProgress?.(90);
 
   const output = document.createElement('canvas');
@@ -305,28 +352,44 @@ export async function anonymize(
   // Slider values are calibrated against a 100px-wide face. Scale per-face
   // (super-linear for blur radius / pixelate block, linear for padding /
   // feather) so the effect strength stays visually consistent across face
-  // sizes — same logic as the video pipeline.
+  // sizes — same logic as the video pipeline. Whole-frame mode skips scaling
+  // and applies a rectangular full-canvas region without padding/feather.
   for (let i = 0; i < faces.length; i++) {
     const box = faces[i];
     const bboxW = box.width;
-    const pad = scaleKernel(resolvedOpts.padding, bboxW);
-    const feather = scaleKernel(resolvedOpts.feather, bboxW);
+    const pad = full ? 0 : scaleKernel(resolvedOpts.padding, bboxW);
+    const feather = full ? 0 : scaleKernel(resolvedOpts.feather, bboxW);
+    const shape = full ? 'rect' : resolvedOpts.maskShape;
     switch (resolvedOpts.effect) {
       case 'blur': {
-        const radius = scaleEffectStrength(resolvedOpts.blurRadius, bboxW);
-        applyBlur(ctx, canvas, box, radius, pad, feather, resolvedOpts.maskShape, cW, cH);
+        const radius = full
+          ? resolvedOpts.blurRadius
+          : scaleEffectStrength(resolvedOpts.blurRadius, bboxW);
+        applyBlur(ctx, canvas, box, radius, pad, feather, shape, cW, cH);
         break;
       }
       case 'pixelate': {
-        const size = scaleEffectStrength(resolvedOpts.pixelateSize, bboxW, 2);
-        applyPixelate(ctx, canvas, box, size, pad, feather, resolvedOpts.maskShape, cW, cH);
+        const size = full
+          ? Math.max(1, resolvedOpts.pixelateSize)
+          : scaleEffectStrength(resolvedOpts.pixelateSize, bboxW, 2);
+        applyPixelate(ctx, canvas, box, size, pad, feather, shape, cW, cH);
         break;
       }
       case 'solid':
-        applySolid(ctx, canvas, box, resolvedOpts.solidColor, pad, feather, resolvedOpts.maskShape, cW, cH);
+        applySolid(ctx, canvas, box, resolvedOpts.solidColor, pad, feather, shape, cW, cH);
         break;
       case 'emoji':
-        applyEmoji(ctx, canvas, box, resolvedOpts.emojis?.[i] || resolvedOpts.emoji, pad, 0, resolvedOpts.maskShape, cW, cH);
+        applyEmoji(
+          ctx,
+          canvas,
+          box,
+          resolvedOpts.emojis?.[i] || resolvedOpts.emoji,
+          pad,
+          0,
+          shape,
+          cW,
+          cH
+        );
         break;
     }
   }

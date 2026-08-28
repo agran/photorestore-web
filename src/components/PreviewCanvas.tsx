@@ -20,7 +20,7 @@ const DEBOUNCE_MS = 80;
 
 export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: PreviewCanvasProps) {
   const store = useAnonymizeStore();
-  const { faces, effect, blurRadius, pixelateSize, solidColor, emojiInput } = store;
+  const { faces, effect, blurRadius, pixelateSize, solidColor, emojiInput, mode } = store;
   const padding = store.padding ?? 4;
   const feather = store.feather ?? 0;
   const maskShape = store.maskShape ?? 'rect';
@@ -32,7 +32,7 @@ export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: Preview
   const prevUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (faces.length === 0) {
+    if (mode !== 'full' && faces.length === 0) {
       setBlobUrl((cur) => {
         if (cur) URL.revokeObjectURL(cur);
         prevUrlRef.current = null;
@@ -59,31 +59,116 @@ export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: Preview
 
         // Match the pipeline: slider values are calibrated against a 100px-
         // wide face and scaled per face so the preview reflects the same
-        // strength the user will see after Apply.
-        for (let i = 0; i < faces.length; i++) {
-          if (cancelled) return;
-          const box: FaceBox = faces[i];
-          const bboxW = box.width;
-          const scaledPad = scaleKernel(padding, bboxW);
-          const scaledFeather = scaleKernel(feather, bboxW);
-
+        // strength the user will see after Apply. Whole-frame mode uses raw
+        // slider values on a single full-canvas region.
+        if (mode === 'full') {
+          const fullBox: FaceBox = {
+            x: 0,
+            y: 0,
+            width: imgWidth,
+            height: imgHeight,
+            confidence: 1,
+          };
           switch (effect) {
-            case 'blur': {
-              const radius = scaleEffectStrength(blurRadius, bboxW);
-              applyBlur(ctx, canvas, box, radius, scaledPad, scaledFeather, maskShape, imgWidth, imgHeight);
+            case 'blur':
+              applyBlur(ctx, canvas, fullBox, blurRadius, 0, 0, 'rect', imgWidth, imgHeight);
               break;
-            }
-            case 'pixelate': {
-              const size = scaleEffectStrength(pixelateSize, bboxW, 2);
-              applyPixelate(ctx, canvas, box, size, scaledPad, scaledFeather, maskShape, imgWidth, imgHeight);
+            case 'pixelate':
+              applyPixelate(
+                ctx,
+                canvas,
+                fullBox,
+                Math.max(1, pixelateSize),
+                0,
+                0,
+                'rect',
+                imgWidth,
+                imgHeight
+              );
               break;
-            }
             case 'solid':
-              applySolid(ctx, canvas, box, solidColor, scaledPad, scaledFeather, maskShape, imgWidth, imgHeight);
+              applySolid(ctx, canvas, fullBox, solidColor, 0, 0, 'rect', imgWidth, imgHeight);
               break;
             case 'emoji':
-              applyEmoji(ctx, canvas, box, store.randomEmojis[i] || emojiInput || '😶', scaledPad, 0, maskShape, imgWidth, imgHeight);
+              applyEmoji(
+                ctx,
+                canvas,
+                fullBox,
+                emojiInput || '😶',
+                0,
+                0,
+                'rect',
+                imgWidth,
+                imgHeight
+              );
               break;
+          }
+        } else {
+          for (let i = 0; i < faces.length; i++) {
+            if (cancelled) return;
+            const box: FaceBox = faces[i];
+            const bboxW = box.width;
+            const scaledPad = scaleKernel(padding, bboxW);
+            const scaledFeather = scaleKernel(feather, bboxW);
+
+            switch (effect) {
+              case 'blur': {
+                const radius = scaleEffectStrength(blurRadius, bboxW);
+                applyBlur(
+                  ctx,
+                  canvas,
+                  box,
+                  radius,
+                  scaledPad,
+                  scaledFeather,
+                  maskShape,
+                  imgWidth,
+                  imgHeight
+                );
+                break;
+              }
+              case 'pixelate': {
+                const size = scaleEffectStrength(pixelateSize, bboxW, 2);
+                applyPixelate(
+                  ctx,
+                  canvas,
+                  box,
+                  size,
+                  scaledPad,
+                  scaledFeather,
+                  maskShape,
+                  imgWidth,
+                  imgHeight
+                );
+                break;
+              }
+              case 'solid':
+                applySolid(
+                  ctx,
+                  canvas,
+                  box,
+                  solidColor,
+                  scaledPad,
+                  scaledFeather,
+                  maskShape,
+                  imgWidth,
+                  imgHeight
+                );
+                break;
+              case 'emoji':
+                applyEmoji(
+                  ctx,
+                  canvas,
+                  box,
+                  store.randomEmojis[i] || emojiInput || '😶',
+                  scaledPad,
+                  0,
+                  maskShape,
+                  imgWidth,
+                  imgHeight
+                );
+                break;
+            }
           }
         }
 
@@ -100,11 +185,13 @@ export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: Preview
             if (prev) URL.revokeObjectURL(prev);
           },
           'image/jpeg',
-          0.85,
+          0.85
         );
       };
 
-      img.onerror = () => { /* keep last preview if load fails */ };
+      img.onerror = () => {
+        /* keep last preview if load fails */
+      };
       img.src = imageUrl;
     };
 
@@ -117,7 +204,22 @@ export default function PreviewCanvas({ imageUrl, imgWidth, imgHeight }: Preview
       cancelled = true;
       if (timeoutId !== null) clearTimeout(timeoutId);
     };
-  }, [imageUrl, imgWidth, imgHeight, faces, effect, blurRadius, pixelateSize, solidColor, emojiInput, store.randomEmojis, padding, feather, maskShape]);
+  }, [
+    imageUrl,
+    imgWidth,
+    imgHeight,
+    faces,
+    effect,
+    blurRadius,
+    pixelateSize,
+    solidColor,
+    emojiInput,
+    store.randomEmojis,
+    padding,
+    feather,
+    maskShape,
+    mode,
+  ]);
 
   // Revoke the last blob URL when the component unmounts.
   useEffect(() => {

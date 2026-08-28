@@ -1,4 +1,4 @@
-import type { AnonymizeEffect, MaskShape } from '@/ml/utils/anonymizeEffects';
+import type { AnonymizeEffect, AnonymizeMode, MaskShape } from '@/ml/utils/anonymizeEffects';
 import type { FaceBox } from '@/ml/utils/faceDetect';
 import { create } from 'zustand';
 
@@ -70,6 +70,7 @@ interface AnonymizeState {
    * original source instead of stacking effects on top of a prior result. */
   sourceImageUrl: string | null;
   effect: AnonymizeEffect;
+  mode: AnonymizeMode;
   blurRadius: number;
   pixelateSize: number;
   solidColor: string;
@@ -89,6 +90,7 @@ interface AnonymizeState {
   deleteFace: (index: number) => void;
   addFace: (box: FaceBox) => void;
   setEffect: (effect: AnonymizeEffect) => void;
+  setMode: (mode: AnonymizeMode) => void;
   setBlurRadius: (r: number) => void;
   setPixelateSize: (s: number) => void;
   setSolidColor: (c: string) => void;
@@ -112,6 +114,7 @@ const initialState = {
   faces: [] as FaceBox[],
   sourceImageUrl: null as string | null,
   effect: 'pixelate' as AnonymizeEffect,
+  mode: 'faces' as AnonymizeMode,
   blurRadius: 12,
   pixelateSize: 10,
   solidColor: '#000000',
@@ -129,6 +132,7 @@ const initialState = {
 // not transient UI state.
 const SETTINGS_KEYS = [
   'effect',
+  'mode',
   'blurRadius',
   'pixelateSize',
   'solidColor',
@@ -178,6 +182,7 @@ export const useAnonymizeStore = create<AnonymizeState>((set, get) => ({
     }),
 
   setEffect: (effect) => set({ effect }),
+  setMode: (mode) => set({ mode }),
   setBlurRadius: (blurRadius) => set({ blurRadius }),
   setPixelateSize: (pixelateSize) => set({ pixelateSize }),
   setSolidColor: (solidColor) => set({ solidColor }),
@@ -202,9 +207,10 @@ export const useAnonymizeStore = create<AnonymizeState>((set, get) => ({
 
   resetForNewImage: () => {
     const state = get();
-    const preserved = Object.fromEntries(
-      SETTINGS_KEYS.map((k) => [k, state[k]])
-    ) as Pick<AnonymizeState, (typeof SETTINGS_KEYS)[number]>;
+    const preserved = Object.fromEntries(SETTINGS_KEYS.map((k) => [k, state[k]])) as Pick<
+      AnonymizeState,
+      (typeof SETTINGS_KEYS)[number]
+    >;
     set({ ...initialState, ...preserved });
   },
 

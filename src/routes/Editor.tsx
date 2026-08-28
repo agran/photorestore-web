@@ -26,10 +26,20 @@ import { toast } from '@/hooks/useToast';
 export default function Editor() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentImageUrl, originalImageUrl, setImage, loadNewImage, pushHistory } = useEditorStore();
+  const { currentImageUrl, originalImageUrl, setImage, loadNewImage, pushHistory } =
+    useEditorStore();
   const { history, restore } = useImageHistory();
-  const { reset: resetAnonymize, resetForNewImage: resetAnonymizeForNewImage, setModelId, setSourceImageUrl } = useAnonymizeStore();
-  const { reset: resetVideoAnonymize, loadFile: loadVideoFile, step: videoStep } = useVideoAnonymizeStore();
+  const {
+    reset: resetAnonymize,
+    resetForNewImage: resetAnonymizeForNewImage,
+    setModelId,
+    setSourceImageUrl,
+  } = useAnonymizeStore();
+  const {
+    reset: resetVideoAnonymize,
+    loadFile: loadVideoFile,
+    step: videoStep,
+  } = useVideoAnonymizeStore();
   const { tileSize, tileOverlap } = useSettingsStore();
   const upscaleModels = getModelsByPipeline('upscale');
   const [showWizard, setShowWizard] = useState(false);
@@ -37,7 +47,7 @@ export default function Editor() {
   // (e.g. dropped on Home), open the wizard immediately — no flash of the
   // empty-state UI.
   const [showVideoWizard, setShowVideoWizard] = useState(
-    () => useVideoAnonymizeStore.getState().step !== 'idle',
+    () => useVideoAnonymizeStore.getState().step !== 'idle'
   );
 
   useEffect(() => {
@@ -45,7 +55,7 @@ export default function Editor() {
   }, [videoStep]);
   const [activeTool, setActiveTool] = useState<PipelineType | null>(null);
   const [upscaleModelId, setUpscaleModelId] = useState(
-    upscaleModels.find((m) => m.id === 'nomos8ksc')?.id ?? upscaleModels[0]?.id ?? '',
+    upscaleModels.find((m) => m.id === 'nomos8ksc')?.id ?? upscaleModels[0]?.id ?? ''
   );
   const [convertingHeic, setConvertingHeic] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -77,8 +87,7 @@ export default function Editor() {
     // Upscale always runs from the pristine original when one exists —
     // chaining upscalers compounds artifacts, and the typical reason to
     // re-trigger upscale is "try another model on the same source".
-    const sourceUrl =
-      activeTool === 'upscale' && originalImageUrl ? originalImageUrl : undefined;
+    const sourceUrl = activeTool === 'upscale' && originalImageUrl ? originalImageUrl : undefined;
     try {
       await runPipeline(activeTool, options, sourceUrl);
       setActiveTool(null);
@@ -110,6 +119,9 @@ export default function Editor() {
         });
       return;
     }
+    // A photo replaces any previous video session — otherwise the editor
+    // reopens the old video wizard over the new photo.
+    resetVideoAnonymize();
     const url = URL.createObjectURL(file);
     setImage(url);
   };
@@ -156,8 +168,7 @@ export default function Editor() {
     setImage(originalImageUrl);
   };
 
-  const canRevertToOriginal =
-    !!originalImageUrl && currentImageUrl !== originalImageUrl;
+  const canRevertToOriginal = !!originalImageUrl && currentImageUrl !== originalImageUrl;
 
   const handleOpenAnotherPhoto = () => fileInputRef.current?.click();
 
@@ -173,17 +184,22 @@ export default function Editor() {
       if (willConvert) setConvertingHeic(false);
 
       if (!result.ok) {
-        toast({ title: t(result.messageKey), description: result.description, variant: 'destructive' });
+        toast({
+          title: t(result.messageKey),
+          description: result.description,
+          variant: 'destructive',
+        });
         return;
       }
 
       const url = URL.createObjectURL(result.file);
       // Treat as a fresh photo — clears the prior original/result pair so
       // before/after and "revert to original" work against the new image.
+      resetVideoAnonymize();
       loadNewImage(url);
       setActiveTool(null);
     },
-    [loadNewImage, t],
+    [loadNewImage, t, resetVideoAnonymize]
   );
 
   if (showVideoWizard) {
@@ -218,7 +234,9 @@ export default function Editor() {
         type="file"
         accept={PHOTO_ACCEPT_ATTR}
         className="sr-only"
-        onChange={(e) => { void handleNewPhotoFile(e); }}
+        onChange={(e) => {
+          void handleNewPhotoFile(e);
+        }}
       />
       <div className="flex flex-1 min-h-0 gap-3 max-md:flex-col max-md:gap-1.5">
         {/* Tools column */}
@@ -234,10 +252,7 @@ export default function Editor() {
           </div>
           {showWizard ? (
             <div className="flex-1 min-h-0 overflow-hidden">
-              <AnonymizeWizard
-                onResult={handleWizardResult}
-                onClose={handleCloseWizard}
-              />
+              <AnonymizeWizard onResult={handleWizardResult} onClose={handleCloseWizard} />
             </div>
           ) : (
             <>
@@ -245,10 +260,22 @@ export default function Editor() {
                 <div className="flex-shrink-0 flex items-center justify-between gap-2 px-3 py-1.5 border-b">
                   <span className="text-sm font-medium truncate">{toolTitles[activeTool]}</span>
                   <div className="flex items-center gap-1 shrink-0">
-                    <Button variant="ghost" size="icon" onClick={() => downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))} title={t('editor.download')}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() =>
+                        downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))
+                      }
+                      title={t('editor.download')}
+                    >
                       <Download className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" onClick={() => setActiveTool(null)} title={t('common.close')}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setActiveTool(null)}
+                      title={t('common.close')}
+                    >
                       <X className="h-4 w-4" />
                     </Button>
                   </div>
@@ -256,7 +283,10 @@ export default function Editor() {
               )}
               {canRevertToOriginal ? (
                 <BeforeAfterSplit className="flex-1 min-h-0 w-full bg-muted rounded-lg overflow-hidden">
-                  <img src={originalImageUrl ?? currentImageUrl} className="h-full w-full object-contain" />
+                  <img
+                    src={originalImageUrl ?? currentImageUrl}
+                    className="h-full w-full object-contain"
+                  />
                   <img src={currentImageUrl} className="h-full w-full object-contain" />
                 </BeforeAfterSplit>
               ) : (
@@ -276,7 +306,9 @@ export default function Editor() {
                           onChange={(e) => setUpscaleModelId(e.target.value)}
                         >
                           {upscaleModels.map((m) => (
-                            <option key={m.id} value={m.id}>{m.name} · {modelRuntimeLabel(m)} · {formatModelSize(m.sizeBytes)}</option>
+                            <option key={m.id} value={m.id}>
+                              {m.name} · {modelRuntimeLabel(m)} · {formatModelSize(m.sizeBytes)}
+                            </option>
                           ))}
                         </select>
                       </div>
@@ -311,7 +343,9 @@ export default function Editor() {
                     )}
                     <Button
                       className="flex-1 gap-2"
-                      onClick={() => downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))}
+                      onClick={() =>
+                        downloadImageUrl(currentImageUrl, t('editor.downloadFilename'))
+                      }
                     >
                       <Download className="h-4 w-4" />
                       {t('editor.download')}
@@ -341,10 +375,7 @@ export default function Editor() {
                   key={entry.id}
                   className="group relative w-full overflow-hidden rounded border transition-colors hover:border-primary"
                 >
-                  <button
-                    className="w-full text-left"
-                    onClick={() => handleHistoryClick(entry)}
-                  >
+                  <button className="w-full text-left" onClick={() => handleHistoryClick(entry)}>
                     <img
                       src={entry.imageUrl}
                       alt={entry.label}

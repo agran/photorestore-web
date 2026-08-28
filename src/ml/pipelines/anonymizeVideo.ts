@@ -9,14 +9,21 @@ import {
   scaleKernel,
   scaleEffectStrength,
   type AnonymizeEffectOptions,
+  type AnonymizeMode,
 } from '@/ml/utils/anonymizeEffects';
 import { FaceTracker, type TrackedFace } from '@/ml/tracking/faceTracker';
 import type { FaceBox } from '@/ml/utils/faceDetect';
 import {
-  Input, Output, Mp4OutputFormat, BufferTarget,
-  ALL_FORMATS, BlobSource,
-  VideoSampleSink, EncodedPacketSink,
-  EncodedVideoPacketSource, EncodedAudioPacketSource,
+  Input,
+  Output,
+  Mp4OutputFormat,
+  BufferTarget,
+  ALL_FORMATS,
+  BlobSource,
+  VideoSampleSink,
+  EncodedPacketSink,
+  EncodedVideoPacketSource,
+  EncodedAudioPacketSource,
   EncodedPacket,
 } from 'mediabunny';
 
@@ -46,6 +53,12 @@ export interface KeyframeData {
 export interface VideoAnonymizeOptions {
   effectOptions: AnonymizeEffectOptions;
   modelId: string;
+  /**
+   * 'faces' (default): detect faces every keyframe and apply the effect to them.
+   * 'full': skip detection entirely and apply the effect to the whole frame —
+   * much faster, no face-detection model download needed.
+   */
+  mode?: AnonymizeMode;
   /**
    * 'accurate' (default): detect every frame — no gaps when faces appear, slower.
    * 'fast': adaptive detection (5–60 frame interval) — faster, but newly-appearing
@@ -92,20 +105,24 @@ function applyEffect(
    * detected bbox shrinks/grows when the head rotates. Padding/feather still
    * use the live box width so the mask outline stays tight to the face.
    */
-  effectWidth?: number,
+  effectWidth?: number
 ) {
   const bboxW = box.width;
   const strengthW = effectWidth ?? bboxW;
   switch (opts.effect) {
     case 'blur': {
-      const radius = useScaleInvariant ? scaleEffectStrength(opts.blurRadius, strengthW) : opts.blurRadius;
+      const radius = useScaleInvariant
+        ? scaleEffectStrength(opts.blurRadius, strengthW)
+        : opts.blurRadius;
       const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
       const feather = useScaleInvariant ? scaleKernel(opts.feather, bboxW) : opts.feather;
       applyBlur(ctx, source, box, radius, pad, feather, opts.maskShape, cW, cH);
       break;
     }
     case 'pixelate': {
-      const size = useScaleInvariant ? scaleEffectStrength(opts.pixelateSize, strengthW, 2) : opts.pixelateSize;
+      const size = useScaleInvariant
+        ? scaleEffectStrength(opts.pixelateSize, strengthW, 2)
+        : opts.pixelateSize;
       const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
       const feather = useScaleInvariant ? scaleKernel(opts.feather, bboxW) : opts.feather;
       applyPixelate(ctx, source, box, size, pad, feather, opts.maskShape, cW, cH);
@@ -119,25 +136,48 @@ function applyEffect(
     }
     case 'emoji': {
       const pad = useScaleInvariant ? scaleKernel(opts.padding, bboxW) : opts.padding;
-      applyEmoji(ctx, source, box, opts.emojis?.[idx] || opts.emoji, pad, 0, opts.maskShape, cW, cH);
+      applyEmoji(
+        ctx,
+        source,
+        box,
+        opts.emojis?.[idx] || opts.emoji,
+        pad,
+        0,
+        opts.maskShape,
+        cW,
+        cH
+      );
       break;
     }
   }
 }
 
 const EMOJI_POPULAR = [
-  '😀', '😎', '🤣', '😇', '😍', '🤩', '😘', '😜', '🥳',
-  '🐱', '🐶', '🐼', '🦊', '🐸', '👻', '💀', '🎃', '🤖',
+  '😀',
+  '😎',
+  '🤣',
+  '😇',
+  '😍',
+  '🤩',
+  '😘',
+  '😜',
+  '🥳',
+  '🐱',
+  '🐶',
+  '🐼',
+  '🦊',
+  '🐸',
+  '👻',
+  '💀',
+  '🎃',
+  '🤖',
 ];
 
 function randomEmoji(): string {
   return EMOJI_POPULAR[Math.floor(Math.random() * EMOJI_POPULAR.length)];
 }
 
-export async function anonymizeVideo(
-  file: File,
-  options: VideoAnonymizeOptions,
-): Promise<Blob> {
+export async function anonymizeVideo(file: File, options: VideoAnonymizeOptions): Promise<Blob> {
   // Ensure onProgress only increases (no regression on fallback)
   let lastProgress = 0;
   const monotonicProgress = (p: number) => {
@@ -158,7 +198,7 @@ export async function anonymizeVideo(
     const fallbackOpts = {
       ...options,
       onProgress: (p: number) => {
-        const adjusted = offset + Math.round(p * (99 - offset) / 99);
+        const adjusted = offset + Math.round((p * (99 - offset)) / 99);
         monotonicProgress(adjusted);
       },
     };
@@ -166,11 +206,22 @@ export async function anonymizeVideo(
   }
 }
 
-async function anonymizeVideoV2(
-  file: File,
-  options: VideoAnonymizeOptions,
-): Promise<Blob> {
-  const { effectOptions, modelId, quality = 'fast', videoDuration: optDuration, bodyTracking = false, onProgress, onEta, signal, excludeTrackIds, onTrackMeta, storedKeyframes, onKeyframeData } = options;
+async function anonymizeVideoV2(file: File, options: VideoAnonymizeOptions): Promise<Blob> {
+  const {
+    effectOptions,
+    modelId,
+    quality = 'fast',
+    videoDuration: optDuration,
+    bodyTracking = false,
+    onProgress,
+    onEta,
+    signal,
+    excludeTrackIds,
+    onTrackMeta,
+    storedKeyframes,
+    onKeyframeData,
+    mode = 'faces',
+  } = options;
   const resolvedOpts = resolveEffectOptions(effectOptions);
   const useScaleInvariant = true;
 
@@ -214,7 +265,7 @@ async function anonymizeVideoV2(
   };
   const configSupported = await VideoEncoder.isConfigSupported(h264Config);
   const outputCodec = configSupported ? 'avc1.420028' : 'vp09.00.10.08';
-  const outputCodecType = configSupported ? 'avc' as const : 'vp9' as const;
+  const outputCodecType = configSupported ? ('avc' as const) : ('vp9' as const);
 
   const encodedChunks: EncodedVideoChunk[] = [];
   let encoderMeta: EncodedVideoChunkMetadata | undefined;
@@ -226,11 +277,21 @@ async function anonymizeVideoV2(
       if (!encoderMeta && meta) encoderMeta = meta;
       encodedChunks.push(chunk);
     },
-    error: (err) => { console.error('VideoEncoder error:', err); encoderError = err; },
+    error: (err) => {
+      console.error('VideoEncoder error:', err);
+      encoderError = err;
+    },
   });
-  encoder.configure(configSupported ? h264Config : {
-    codec: 'vp09.00.10.08', width: cW, height: cH, bitrate: 5_000_000,
-  });
+  encoder.configure(
+    configSupported
+      ? h264Config
+      : {
+          codec: 'vp09.00.10.08',
+          width: cW,
+          height: cH,
+          bitrate: 5_000_000,
+        }
+  );
 
   // 3. Setup output
   const output = new Output({
@@ -264,10 +325,12 @@ async function anonymizeVideoV2(
         data,
         chunk.type === 'key' ? 'key' : 'delta',
         chunk.timestamp / 1_000_000,
-        (chunk.duration ?? 33_333) / 1_000_000,
+        (chunk.duration ?? 33_333) / 1_000_000
       );
       const meta = isFirstVideoPacket
-        ? (encoderMeta ?? { decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH } })
+        ? (encoderMeta ?? {
+            decoderConfig: { codec: outputCodec, codedWidth: cW, codedHeight: cH },
+          })
         : undefined;
       await videoSource.add(pkt, meta);
       isFirstVideoPacket = false;
@@ -294,7 +357,10 @@ async function anonymizeVideoV2(
   // canvas is held until finalize() — encoded to a blob URL there to avoid
   // synchronous toDataURL on every new track (which can block the main
   // thread for ~5–10 ms each on 1080p frames).
-  const trackMetaMap = new Map<number, { firstFrame: number; lastFrame: number; thumbCanvas: HTMLCanvasElement }>();
+  const trackMetaMap = new Map<
+    number,
+    { firstFrame: number; lastFrame: number; thumbCanvas: HTMLCanvasElement }
+  >();
   const excludedSet = excludeTrackIds ?? new Set<number>();
 
   // Pre-computed keyframes from a previous pass — skip ONNX inference on replay.
@@ -371,7 +437,10 @@ async function anonymizeVideoV2(
 
       let trackedFaces: TrackedFace[] = [];
 
-      if (frameIndex >= nextDetectionFrame) {
+      // Whole-frame mode: no detection, no tracking — the effect below covers
+      // the entire frame on every frame.
+      const isFullMode = mode === 'full';
+      if (!isFullMode && frameIndex >= nextDetectionFrame) {
         const runPose = bodyTracking && frameIndex >= nextPoseFrame;
 
         let detections: FaceBox[];
@@ -419,16 +488,21 @@ async function anonymizeVideoV2(
           for (const pose of posesForInject) {
             if (pose.nose.score < 0.3) continue;
             // Skip if any real detection already covers this pose's nose
-            const noseCovered = detections.some(d =>
-              pose.nose.x >= d.x && pose.nose.x <= d.x + d.width &&
-              pose.nose.y >= d.y && pose.nose.y <= d.y + d.height
+            const noseCovered = detections.some(
+              (d) =>
+                pose.nose.x >= d.x &&
+                pose.nose.x <= d.x + d.width &&
+                pose.nose.y >= d.y &&
+                pose.nose.y <= d.y + d.height
             );
             if (noseCovered) continue;
             const synth = faceBoxFromPose(pose, { width: 0, height: 0 }, cW, cH);
             if (!synth) continue;
             detections.push({
-              x: synth.x, y: synth.y,
-              width: synth.width, height: synth.height,
+              x: synth.x,
+              y: synth.y,
+              width: synth.width,
+              height: synth.height,
               confidence: 0.6, // synthetic — high enough to seed a track
             });
           }
@@ -485,13 +559,20 @@ async function anonymizeVideoV2(
           detectionIntervalAdaptive = Math.max(minInterval, detectionIntervalAdaptive - 5);
         }
         nextDetectionFrame = frameIndex + detectionIntervalAdaptive;
-      } else {
+      } else if (!isFullMode) {
         trackedFaces = tracker.predict(cW, cH);
       }
 
       sample.draw(processCtx, 0, 0, cW, cH);
 
-      if (trackedFaces.length > 0) {
+      if (isFullMode) {
+        // Whole-frame effect: raw slider values (no per-face scaling) and a
+        // rectangular full-canvas region without padding/feather.
+        const frameCopy = canvasFromCanvas(processCanvas);
+        const fullBox: FaceBox = { x: 0, y: 0, width: cW, height: cH, confidence: 1 };
+        const fullOpts = { ...resolvedOpts, padding: 0, feather: 0, maskShape: 'rect' as const };
+        applyEffect(processCtx, frameCopy, fullBox, fullOpts, 0, cW, cH, false);
+      } else if (trackedFaces.length > 0) {
         const frameCopy = canvasFromCanvas(processCanvas);
         const aliveTrackIds = new Set<number>();
         for (let i = 0; i < trackedFaces.length; i++) {
@@ -510,7 +591,13 @@ async function anonymizeVideoV2(
             continue;
           }
 
-          let faceBox: FaceBox = { x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1 };
+          let faceBox: FaceBox = {
+            x: tf.smoothX,
+            y: tf.smoothY,
+            width: tf.smoothWidth,
+            height: tf.smoothHeight,
+            confidence: 1,
+          };
 
           // Body tracking override. Triggers either when the face track is
           // unmatched (framesSinceUpdate > 0) OR the body estimate is much
@@ -523,7 +610,8 @@ async function anonymizeVideoV2(
               const estimated = faceBoxFromPose(
                 cachedPoses[bodyIdx],
                 { width: tf.smoothWidth, height: tf.smoothHeight },
-                cW, cH,
+                cW,
+                cH
               );
               if (estimated) {
                 const trackArea = tf.smoothWidth * tf.smoothHeight;
@@ -552,16 +640,25 @@ async function anonymizeVideoV2(
           // pose jitter. Grows instantly, decays slowly.
           const observedW = tf.smoothWidth;
           const prevEffW = trackEffectWidths.get(tf.trackId);
-          const stableEffectWidth = prevEffW === undefined
-            ? observedW
-            : Math.max(observedW, prevEffW * EFFECT_W_DECAY);
+          const stableEffectWidth =
+            prevEffW === undefined ? observedW : Math.max(observedW, prevEffW * EFFECT_W_DECAY);
           trackEffectWidths.set(tf.trackId, stableEffectWidth);
 
           const trackOpts = { ...resolvedOpts };
           if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
             trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
           }
-          applyEffect(processCtx, frameCopy, faceBox, trackOpts, i, cW, cH, useScaleInvariant, stableEffectWidth);
+          applyEffect(
+            processCtx,
+            frameCopy,
+            faceBox,
+            trackOpts,
+            i,
+            cW,
+            cH,
+            useScaleInvariant,
+            stableEffectWidth
+          );
         }
         // GC per-track state for tracks that no longer exist. Without this,
         // ByteTrack's reused IDs (after wraparound) would inherit stale
@@ -583,23 +680,30 @@ async function anonymizeVideoV2(
         const vf = new VideoFrame(processCanvas, { timestamp: tsUs, duration: durUs });
         encoder.encode(vf);
         vf.close();
-      } catch (e) { console.error('Frame encode failed:', e); }
+      } catch (e) {
+        console.error('Frame encode failed:', e);
+      }
 
-      if (encoderError) { console.error('VideoEncoder failed'); throw new Error('VideoEncoder error'); }
+      if (encoderError) {
+        console.error('VideoEncoder failed');
+        throw new Error('VideoEncoder error');
+      }
 
       frameIndex++;
       // Periodically drain encoded chunks to avoid OOM on long videos
       if (frameIndex % 300 === 0 && encodedChunks.length > 0) {
         await drainEncodedChunks();
       }
-      const progress = videoDuration > 0
-        ? 5 + Math.round((sample.timestamp / videoDuration) * 90)
-        : 5 + Math.min(90, Math.round(frameIndex / (frameIndex + 30) * 90));
+      const progress =
+        videoDuration > 0
+          ? 5 + Math.round((sample.timestamp / videoDuration) * 90)
+          : 5 + Math.min(90, Math.round((frameIndex / (frameIndex + 30)) * 90));
       onProgress?.(Math.min(95, progress));
 
       if (onEta && frameIndex > 5) {
         const elapsed = (performance.now() - startTime) / 1000;
-        const timeProgress = videoDuration > 0 ? sample.timestamp / videoDuration : frameIndex / (frameIndex + 30);
+        const timeProgress =
+          videoDuration > 0 ? sample.timestamp / videoDuration : frameIndex / (frameIndex + 30);
         const rate = timeProgress / elapsed;
         const remainingTotal = 1 - timeProgress;
         onEta(Math.max(0, Math.round(remainingTotal / (rate || 0.001))));
@@ -614,7 +718,11 @@ async function anonymizeVideoV2(
   let buffer: ArrayBuffer | null = null;
 
   try {
-    try { await encoder.flush(); } catch { /* ignore */ }
+    try {
+      await encoder.flush();
+    } catch {
+      /* ignore */
+    }
     encoder.close();
     onProgress?.(96);
 
@@ -657,9 +765,16 @@ async function anonymizeVideoV2(
           audioClosed = true;
         }
       } catch (audioErr) {
-        console.warn('[anonymizeVideo] Audio passthrough failed, output will have no audio:', audioErr);
+        console.warn(
+          '[anonymizeVideo] Audio passthrough failed, output will have no audio:',
+          audioErr
+        );
         if (!audioClosed) {
-          try { audioSource.close(); } catch { /* idempotent close */ }
+          try {
+            audioSource.close();
+          } catch {
+            /* idempotent close */
+          }
         }
       }
     }
@@ -682,9 +797,7 @@ async function anonymizeVideoV2(
             new Promise<TrackMeta>((resolve) => {
               m.thumbCanvas.toBlob(
                 (blob) => {
-                  const thumbnailUrl = blob
-                    ? URL.createObjectURL(blob)
-                    : '';
+                  const thumbnailUrl = blob ? URL.createObjectURL(blob) : '';
                   resolve({
                     trackId,
                     firstFrame: m.firstFrame,
@@ -693,10 +806,10 @@ async function anonymizeVideoV2(
                   });
                 },
                 'image/jpeg',
-                0.7,
+                0.7
               );
-            }),
-        ),
+            })
+        )
       );
       onTrackMeta(metas);
     }
@@ -708,9 +821,21 @@ async function anonymizeVideoV2(
     buffer = output.target.buffer;
   } finally {
     // Ensure resources are released even if the pipeline fails mid-processing
-    try { encoder.close(); } catch { /* already closed */ }
-    try { videoSource.close(); } catch { /* already closed */ }
-    try { audioSource?.close(); } catch { /* already closed */ }
+    try {
+      encoder.close();
+    } catch {
+      /* already closed */
+    }
+    try {
+      videoSource.close();
+    } catch {
+      /* already closed */
+    }
+    try {
+      audioSource?.close();
+    } catch {
+      /* already closed */
+    }
   }
 
   if (!buffer) throw new Error('No output buffer');
@@ -718,11 +843,17 @@ async function anonymizeVideoV2(
 }
 
 /** Fallback: seek-based frame extraction + MediaRecorder */
-async function anonymizeVideoFallback(
-  file: File,
-  options: VideoAnonymizeOptions,
-): Promise<Blob> {
-  const { effectOptions, modelId, quality = 'fast', videoDuration: optDuration, videoFps: optFps, bodyTracking = false, onProgress } = options;
+async function anonymizeVideoFallback(file: File, options: VideoAnonymizeOptions): Promise<Blob> {
+  const {
+    effectOptions,
+    modelId,
+    quality = 'fast',
+    videoDuration: optDuration,
+    videoFps: optFps,
+    bodyTracking = false,
+    onProgress,
+    mode = 'faces',
+  } = options;
   const resolvedOpts = resolveEffectOptions(effectOptions);
   const useScaleInvariant = true;
 
@@ -764,7 +895,9 @@ async function anonymizeVideoFallback(
 
   const chunks: Blob[] = [];
   const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5000000 });
-  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) chunks.push(e.data);
+  };
   const outputBlobPromise = new Promise<Blob>((resolve) => {
     recorder.onstop = () => resolve(new Blob(chunks, { type: mimeType.split(';')[0] }));
   });
@@ -826,7 +959,10 @@ async function anonymizeVideoFallback(
 
   function seekToFrame(v: HTMLVideoElement, frameIndex: number): Promise<void> {
     return new Promise((resolve) => {
-      const onSeeked = () => { v.removeEventListener('seeked', onSeeked); resolve(); };
+      const onSeeked = () => {
+        v.removeEventListener('seeked', onSeeked);
+        resolve();
+      };
       v.addEventListener('seeked', onSeeked);
       v.currentTime = frameIndex / fps;
     });
@@ -842,137 +978,174 @@ async function anonymizeVideoFallback(
 
   try {
     for (let f = 0; f < totalFrames; f++) {
-    let trackedFaces: TrackedFace[] = [];
-    if (f >= nextDetectionFrame) {
-      await seekToFrame(video, f);
-      const frameCanvas = canvasFromVideo(video);
+      let trackedFaces: TrackedFace[] = [];
+      const isFullMode = mode === 'full';
+      if (!isFullMode && f >= nextDetectionFrame) {
+        await seekToFrame(video, f);
+        const frameCanvas = canvasFromVideo(video);
 
-      const runPose = bodyTracking && f >= nextPoseFrame;
-      const [detections, posesResult] = await Promise.all([
-        detectFaces(frameCanvas, { modelId }),
-        runPose ? estimatePoses(frameCanvas).catch(() => null) : Promise.resolve(null),
-      ]);
+        const runPose = bodyTracking && f >= nextPoseFrame;
+        const [detections, posesResult] = await Promise.all([
+          detectFaces(frameCanvas, { modelId }),
+          runPose ? estimatePoses(frameCanvas).catch(() => null) : Promise.resolve(null),
+        ]);
 
-      // See V2: inject synthetic detections from FRESH poses only.
-      const posesForInject = runPose ? posesResult : null;
-      if (bodyTracking && posesForInject) {
-        for (const pose of posesForInject) {
-          if (pose.nose.score < 0.3) continue;
-          const noseCovered = detections.some(d =>
-            pose.nose.x >= d.x && pose.nose.x <= d.x + d.width &&
-            pose.nose.y >= d.y && pose.nose.y <= d.y + d.height
-          );
-          if (noseCovered) continue;
-          const synth = faceBoxFromPose(pose, { width: 0, height: 0 }, cW, cH);
-          if (!synth) continue;
-          detections.push({
-            x: synth.x, y: synth.y,
-            width: synth.width, height: synth.height,
-            confidence: 0.6,
-          });
-        }
-      }
-
-      // See V2: always update() so empty keyframes increment framesSinceUpdate.
-      trackedFaces = tracker.update(detections, cW, cH);
-
-      if (runPose) {
-        cachedPoses = posesResult;
-        nextPoseFrame = f + poseStride;
-      }
-      if (bodyTracking) rebuildTrackBodyMap(trackedFaces, cachedPoses);
-
-      if (resolvedOpts.effect === 'emoji') {
-        for (const tf of trackedFaces) {
-          if (!trackEmojis.has(tf.trackId)) trackEmojis.set(tf.trackId, randomEmoji());
-        }
-      }
-      if (tracker.isConfident() && trackedFaces.length > 0) {
-        dInterval = Math.min(maxInterval, dInterval + 5);
-      } else {
-        dInterval = Math.max(minInterval, dInterval - 5);
-      }
-      nextDetectionFrame = f + dInterval;
-    } else {
-      trackedFaces = tracker.predict(cW, cH);
-      await seekToFrame(video, f);
-    }
-
-    encodeCtx.drawImage(video, 0, 0, cW, cH);
-
-    if (trackedFaces.length > 0) {
-      const frameCopy = canvasFromCanvas(encodeCanvas);
-      const aliveTrackIds = new Set<number>();
-      for (let i = 0; i < trackedFaces.length; i++) {
-        const tf = trackedFaces[i];
-        aliveTrackIds.add(tf.trackId);
-
-        // Phantom-mask guard — see V2 main loop comment.
-        if (bodyTracking && tf.framesSinceUpdate > 1 && !trackBodyMap.has(tf.trackId)) {
-          continue;
-        }
-
-        let smoothBox: FaceBox = { x: tf.smoothX, y: tf.smoothY, width: tf.smoothWidth, height: tf.smoothHeight, confidence: 1 };
-
-        if (bodyTracking && cachedPoses) {
-          const bodyIdx = trackBodyMap.get(tf.trackId);
-          if (bodyIdx !== undefined && bodyIdx < cachedPoses.length) {
-            const estimated = faceBoxFromPose(
-              cachedPoses[bodyIdx],
-              { width: tf.smoothWidth, height: tf.smoothHeight },
-              cW, cH,
+        // See V2: inject synthetic detections from FRESH poses only.
+        const posesForInject = runPose ? posesResult : null;
+        if (bodyTracking && posesForInject) {
+          for (const pose of posesForInject) {
+            if (pose.nose.score < 0.3) continue;
+            const noseCovered = detections.some(
+              (d) =>
+                pose.nose.x >= d.x &&
+                pose.nose.x <= d.x + d.width &&
+                pose.nose.y >= d.y &&
+                pose.nose.y <= d.y + d.height
             );
-            if (estimated) {
-              const trackArea = tf.smoothWidth * tf.smoothHeight;
-              const bodyArea = estimated.width * estimated.height;
-              const useBody = tf.framesSinceUpdate > 0 || bodyArea > trackArea * 1.5;
-              if (useBody) {
-                const prev = lastBodyBoxes.get(tf.trackId);
-                const alpha = prev ? 0.4 : 1.0;
-                const blended = {
-                  x: (prev ? prev.x * (1 - alpha) : 0) + estimated.x * alpha,
-                  y: (prev ? prev.y * (1 - alpha) : 0) + estimated.y * alpha,
-                  width: (prev ? prev.width * (1 - alpha) : 0) + estimated.width * alpha,
-                  height: (prev ? prev.height * (1 - alpha) : 0) + estimated.height * alpha,
-                };
-                lastBodyBoxes.set(tf.trackId, blended);
-                smoothBox = { ...blended, confidence: 1 };
-              }
-            }
+            if (noseCovered) continue;
+            const synth = faceBoxFromPose(pose, { width: 0, height: 0 }, cW, cH);
+            if (!synth) continue;
+            detections.push({
+              x: synth.x,
+              y: synth.y,
+              width: synth.width,
+              height: synth.height,
+              confidence: 0.6,
+            });
           }
         }
 
-        const observedW = tf.smoothWidth;
-        const prevEffW = trackEffectWidths.get(tf.trackId);
-        const stableEffectWidth = prevEffW === undefined
-          ? observedW
-          : Math.max(observedW, prevEffW * FB_EFFECT_W_DECAY);
-        trackEffectWidths.set(tf.trackId, stableEffectWidth);
+        // See V2: always update() so empty keyframes increment framesSinceUpdate.
+        trackedFaces = tracker.update(detections, cW, cH);
 
-        const trackOpts = { ...resolvedOpts };
-        if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
-          trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
+        if (runPose) {
+          cachedPoses = posesResult;
+          nextPoseFrame = f + poseStride;
         }
-        applyEffect(encodeCtx, frameCopy, smoothBox, trackOpts, i, cW, cH, useScaleInvariant, stableEffectWidth);
+        if (bodyTracking) rebuildTrackBodyMap(trackedFaces, cachedPoses);
+
+        if (resolvedOpts.effect === 'emoji') {
+          for (const tf of trackedFaces) {
+            if (!trackEmojis.has(tf.trackId)) trackEmojis.set(tf.trackId, randomEmoji());
+          }
+        }
+        if (tracker.isConfident() && trackedFaces.length > 0) {
+          dInterval = Math.min(maxInterval, dInterval + 5);
+        } else {
+          dInterval = Math.max(minInterval, dInterval - 5);
+        }
+        nextDetectionFrame = f + dInterval;
+      } else if (!isFullMode) {
+        trackedFaces = tracker.predict(cW, cH);
+        await seekToFrame(video, f);
+      } else {
+        await seekToFrame(video, f);
       }
-      for (const id of lastBodyBoxes.keys()) {
-        if (!aliveTrackIds.has(id)) lastBodyBoxes.delete(id);
+
+      encodeCtx.drawImage(video, 0, 0, cW, cH);
+
+      if (isFullMode) {
+        const frameCopy = canvasFromCanvas(encodeCanvas);
+        const fullBox: FaceBox = { x: 0, y: 0, width: cW, height: cH, confidence: 1 };
+        const fullOpts = { ...resolvedOpts, padding: 0, feather: 0, maskShape: 'rect' as const };
+        applyEffect(encodeCtx, frameCopy, fullBox, fullOpts, 0, cW, cH, false);
+      } else if (trackedFaces.length > 0) {
+        const frameCopy = canvasFromCanvas(encodeCanvas);
+        const aliveTrackIds = new Set<number>();
+        for (let i = 0; i < trackedFaces.length; i++) {
+          const tf = trackedFaces[i];
+          aliveTrackIds.add(tf.trackId);
+
+          // Phantom-mask guard — see V2 main loop comment.
+          if (bodyTracking && tf.framesSinceUpdate > 1 && !trackBodyMap.has(tf.trackId)) {
+            continue;
+          }
+
+          let smoothBox: FaceBox = {
+            x: tf.smoothX,
+            y: tf.smoothY,
+            width: tf.smoothWidth,
+            height: tf.smoothHeight,
+            confidence: 1,
+          };
+
+          if (bodyTracking && cachedPoses) {
+            const bodyIdx = trackBodyMap.get(tf.trackId);
+            if (bodyIdx !== undefined && bodyIdx < cachedPoses.length) {
+              const estimated = faceBoxFromPose(
+                cachedPoses[bodyIdx],
+                { width: tf.smoothWidth, height: tf.smoothHeight },
+                cW,
+                cH
+              );
+              if (estimated) {
+                const trackArea = tf.smoothWidth * tf.smoothHeight;
+                const bodyArea = estimated.width * estimated.height;
+                const useBody = tf.framesSinceUpdate > 0 || bodyArea > trackArea * 1.5;
+                if (useBody) {
+                  const prev = lastBodyBoxes.get(tf.trackId);
+                  const alpha = prev ? 0.4 : 1.0;
+                  const blended = {
+                    x: (prev ? prev.x * (1 - alpha) : 0) + estimated.x * alpha,
+                    y: (prev ? prev.y * (1 - alpha) : 0) + estimated.y * alpha,
+                    width: (prev ? prev.width * (1 - alpha) : 0) + estimated.width * alpha,
+                    height: (prev ? prev.height * (1 - alpha) : 0) + estimated.height * alpha,
+                  };
+                  lastBodyBoxes.set(tf.trackId, blended);
+                  smoothBox = { ...blended, confidence: 1 };
+                }
+              }
+            }
+          }
+
+          const observedW = tf.smoothWidth;
+          const prevEffW = trackEffectWidths.get(tf.trackId);
+          const stableEffectWidth =
+            prevEffW === undefined ? observedW : Math.max(observedW, prevEffW * FB_EFFECT_W_DECAY);
+          trackEffectWidths.set(tf.trackId, stableEffectWidth);
+
+          const trackOpts = { ...resolvedOpts };
+          if (resolvedOpts.effect === 'emoji' && trackEmojis.has(tf.trackId)) {
+            trackOpts.emojis = [trackEmojis.get(tf.trackId)!];
+          }
+          applyEffect(
+            encodeCtx,
+            frameCopy,
+            smoothBox,
+            trackOpts,
+            i,
+            cW,
+            cH,
+            useScaleInvariant,
+            stableEffectWidth
+          );
+        }
+        for (const id of lastBodyBoxes.keys()) {
+          if (!aliveTrackIds.has(id)) lastBodyBoxes.delete(id);
+        }
+        for (const id of trackEffectWidths.keys()) {
+          if (!aliveTrackIds.has(id)) trackEffectWidths.delete(id);
+        }
       }
-      for (const id of trackEffectWidths.keys()) {
-        if (!aliveTrackIds.has(id)) trackEffectWidths.delete(id);
+
+      if ('requestFrame' in vt) {
+        (vt as { requestFrame: () => void }).requestFrame();
       }
+      onProgress?.(
+        videoDuration > 0
+          ? Math.round((video.currentTime / videoDuration) * 95)
+          : Math.round((f / totalFrames) * 95)
+      );
     }
 
-    if ('requestFrame' in vt) {
-      (vt as { requestFrame: () => void }).requestFrame();
-    }
-    onProgress?.(videoDuration > 0 ? Math.round((video.currentTime / videoDuration) * 95) : Math.round((f / totalFrames) * 95));
-  }
-
-  onProgress?.(99);
-  return outputBlobPromise;
+    onProgress?.(99);
+    return outputBlobPromise;
   } finally {
-    try { recorder.stop(); } catch { /* already stopped */ }
+    try {
+      recorder.stop();
+    } catch {
+      /* already stopped */
+    }
     URL.revokeObjectURL(video.src);
     video.remove();
   }

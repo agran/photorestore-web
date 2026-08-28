@@ -46,6 +46,7 @@ export default function Home() {
   const navigate = useNavigate();
   const { setImage } = useEditorStore();
   const loadVideo = useVideoAnonymizeStore((s) => s.loadFile);
+  const resetVideo = useVideoAnonymizeStore((s) => s.reset);
 
   const handleFile = (file: File) => {
     if (file.type.startsWith('video/')) {
@@ -60,6 +61,9 @@ export default function Home() {
         });
       return;
     }
+    // A photo replaces any previous video session — otherwise the editor
+    // reopens the old video wizard over the new photo.
+    resetVideo();
     const url = URL.createObjectURL(file);
     setImage(url);
     void navigate('/editor');
